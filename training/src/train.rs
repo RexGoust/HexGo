@@ -5,9 +5,8 @@ use burn::{
     tensor::{ElementConversion, backend::AutodiffBackend},
 };
 
-use crate::{
-    dataset::TrainingSample, loss::total_loss, model::HexGoModel, tensor::samples_to_tensors,
-};
+use crate::{dataset::TrainingSample, loss::total_loss, tensor::samples_to_tensors};
+use hex_go::ai::model::HexGoModel;
 
 pub fn train_step<B: AutodiffBackend>(
     model: HexGoModel<B>,
@@ -61,11 +60,12 @@ pub fn validation_step<B: AutodiffBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dataset::TrainingSample, model::HexGoModel, tensor::samples_to_tensors};
+    use crate::{dataset::TrainingSample, tensor::samples_to_tensors};
     use burn::{
         backend::{Autodiff, Flex},
         optim::AdamConfig,
     };
+    use hex_go::ai::model::HexGoModel;
     use hex_go::game::action::ACTION_SIZE;
 
     type Backend = Autodiff<Flex>;

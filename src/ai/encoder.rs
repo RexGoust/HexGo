@@ -1,5 +1,7 @@
 use crate::game::{Game, player::Player, state::VertexState};
 
+pub const INPUT_SIZE: usize = 88 * 3;
+
 /// Encodes the game state from the given player's perspective.
 ///
 /// Each vertex is represented by three features:

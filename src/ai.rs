@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::{
     ecs::{
         resource::Resource,
@@ -7,7 +9,7 @@ use bevy::{
 };
 
 use crate::{
-    ai::{mcts::Mcts, search::Search},
+    ai::{burn_neural_network::BurnNeuralNetwork, neural_mcts::NeuralMcts, search::Search},
     client::{SessionResource, WorkerResource},
     game::{Game, action::Action, board::VertexId, state::GameStatus},
     session::{GameMode, SessionCommand},
@@ -15,20 +17,28 @@ use crate::{
     worker::Future,
 };
 
+pub mod burn_neural_network;
 pub mod encoder;
 pub mod mcts;
+pub mod model;
 pub mod neural_mcts;
 pub mod neural_network;
 pub mod search;
 pub mod search_result;
+
 #[derive(Resource, Default)]
 pub struct AiState {
     future: Option<Future<Option<VertexId>>>,
 }
 
-fn choose_ai_move(game: Game) -> Option<VertexId> {
-    let mut mcts = Mcts::new();
-    //let mut mcts = NeuralMcts::new(DummyNetwork);
+#[derive(Resource)]
+pub struct NeuralNetworkResource {
+    pub network: Arc<BurnNeuralNetwork>,
+}
+
+fn choose_ai_move(game: Game, network: Arc<BurnNeuralNetwork>) -> Option<VertexId> {
+    //let mut mcts = Mcts::new();
+    let mut mcts = NeuralMcts::new(network);
     let t = Timer::now();
     let action = mcts.choose_action(&game, 1000);
     if game.status() == GameStatus::Playing {
@@ -47,6 +57,7 @@ pub(crate) fn update_ai(
     mut session: ResMut<SessionResource>,
     mut ai: ResMut<AiState>,
     worker: Res<WorkerResource>,
+    network: Res<NeuralNetworkResource>,
 ) {
     if session.0.status() != GameStatus::Playing {
         ai.future = None;
@@ -96,7 +107,9 @@ pub(crate) fn update_ai(
 
     let game = session.0.game().clone();
 
-    ai.future = Some(worker.0.execute(move || choose_ai_move(game)));
+    let network = network.network.clone();
+
+    ai.future = Some(worker.0.execute(move || choose_ai_move(game, network)));
 }
 
 #[cfg(test)]
@@ -114,6 +127,9 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
+            .insert_resource(NeuralNetworkResource {
+                network: Arc::new(BurnNeuralNetwork::load()),
+            })
             .init_resource::<AiState>()
             .add_systems(Update, update_ai);
 
