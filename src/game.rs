@@ -27,6 +27,7 @@ const DEFAULT_KOMI: f64 = 0.5;
 pub enum GameResult {
     WinByScore { winner: Player, margin: f64 },
     WinByResignation { winner: Player },
+    WinByNoLegalMoves { winner: Player },
     Draw,
 }
 
@@ -233,6 +234,15 @@ impl Game {
             .collect()
     }
 
+    pub fn has_legal_moves(&self) -> bool {
+        for vertex in 0..self.occupancy.len() {
+            if self.is_legal_move(VertexId::new(vertex)) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn is_legal_move(&self, vertex: VertexId) -> bool {
         if self.status != GameStatus::Playing {
             return false;
@@ -360,6 +370,10 @@ impl Game {
         self.consecutive_passes = 0;
 
         self.snapshot_history.insert(snapshot);
+
+        if !self.has_legal_moves() {
+            self.status = GameStatus::Finished(GameEndReason::NoLegalMoves { winner: player });
+        }
 
         Ok(())
     }
@@ -520,6 +534,10 @@ impl Game {
 
             GameStatus::Finished(GameEndReason::Resignation { winner, .. }) => {
                 Some(GameResult::WinByResignation { winner })
+            }
+
+            GameStatus::Finished(GameEndReason::NoLegalMoves { winner }) => {
+                Some(GameResult::WinByNoLegalMoves { winner })
             }
         }
     }
@@ -1042,9 +1060,11 @@ mod test {
             (VertexId::new(3), VertexId::new(7)),
             (VertexId::new(4), VertexId::new(8)),
             (VertexId::new(5), VertexId::new(9)),
+            // Additional vertices so White retains legal moves and does not trigger NoLegalMoves.
+            (VertexId::new(10), VertexId::new(11)),
         ];
 
-        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let board = BoardGraph::from_edges(12, edges).unwrap();
         let mut game = Game::new(board);
 
         game.occupancy[0] = VertexState::Occupied(Player::White);
@@ -1067,6 +1087,137 @@ mod test {
 
         // Illegal move must leave the state unchanged.
         assert_eq!(complete_state(&game), state_after_capture);
+    }
+
+    #[test]
+    fn test_game_ends_when_white_has_no_legal_moves() {
+        let edges = [
+            (VertexId::new(0), VertexId::new(1)),
+            (VertexId::new(0), VertexId::new(2)),
+            (VertexId::new(0), VertexId::new(3)),
+            (VertexId::new(1), VertexId::new(4)),
+            (VertexId::new(1), VertexId::new(5)),
+            (VertexId::new(2), VertexId::new(6)),
+            (VertexId::new(3), VertexId::new(7)),
+            (VertexId::new(4), VertexId::new(8)),
+            (VertexId::new(5), VertexId::new(9)),
+        ];
+
+        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let mut game = Game::new(board);
+
+        game.occupancy[0] = VertexState::Occupied(Player::White);
+        game.occupancy[2] = VertexState::Occupied(Player::Black);
+        game.occupancy[3] = VertexState::Occupied(Player::Black);
+        game.occupancy[4] = VertexState::Occupied(Player::White);
+        game.occupancy[5] = VertexState::Occupied(Player::White);
+
+        game.snapshot_history.clear();
+        game.snapshot_history.insert(game.current_snapshot());
+
+        // Black captures White at 0. Since White has no legal moves remaining,
+        // the game finishes immediately with NoLegalMoves.
+        assert_eq!(game.play_move(VertexId::new(1)), Ok(()));
+        assert_eq!(
+            game.status(),
+            GameStatus::Finished(GameEndReason::NoLegalMoves {
+                winner: Player::Black
+            })
+        );
+        assert_eq!(
+            game.result(),
+            Some(GameResult::WinByNoLegalMoves {
+                winner: Player::Black
+            })
+        );
+    }
+
+    #[test]
+    fn test_game_ends_when_black_has_no_legal_moves() {
+        let edges = [
+            (VertexId::new(0), VertexId::new(1)),
+            (VertexId::new(0), VertexId::new(2)),
+            (VertexId::new(0), VertexId::new(3)),
+            (VertexId::new(1), VertexId::new(4)),
+            (VertexId::new(1), VertexId::new(5)),
+            (VertexId::new(2), VertexId::new(6)),
+            (VertexId::new(3), VertexId::new(7)),
+            (VertexId::new(4), VertexId::new(8)),
+            (VertexId::new(5), VertexId::new(9)),
+        ];
+
+        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let mut game = Game::new(board);
+
+        game.occupancy[0] = VertexState::Occupied(Player::Black);
+        game.occupancy[2] = VertexState::Occupied(Player::White);
+        game.occupancy[3] = VertexState::Occupied(Player::White);
+        game.occupancy[4] = VertexState::Occupied(Player::Black);
+        game.occupancy[5] = VertexState::Occupied(Player::Black);
+        game.current_player = Player::White;
+
+        game.snapshot_history.clear();
+        game.snapshot_history.insert(game.current_snapshot());
+
+        // White captures Black at 0. Since Black has no legal moves remaining,
+        // the game finishes immediately with NoLegalMoves.
+        assert_eq!(game.play_move(VertexId::new(1)), Ok(()));
+        assert_eq!(
+            game.status(),
+            GameStatus::Finished(GameEndReason::NoLegalMoves {
+                winner: Player::White
+            })
+        );
+        assert_eq!(
+            game.result(),
+            Some(GameResult::WinByNoLegalMoves {
+                winner: Player::White
+            })
+        );
+    }
+
+    #[test]
+    fn test_actions_rejected_after_game_ends_with_no_legal_moves() {
+        let edges = [
+            (VertexId::new(0), VertexId::new(1)),
+            (VertexId::new(0), VertexId::new(2)),
+            (VertexId::new(0), VertexId::new(3)),
+            (VertexId::new(1), VertexId::new(4)),
+            (VertexId::new(1), VertexId::new(5)),
+            (VertexId::new(2), VertexId::new(6)),
+            (VertexId::new(3), VertexId::new(7)),
+            (VertexId::new(4), VertexId::new(8)),
+            (VertexId::new(5), VertexId::new(9)),
+        ];
+
+        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let mut game = Game::new(board);
+
+        game.occupancy[0] = VertexState::Occupied(Player::White);
+        game.occupancy[2] = VertexState::Occupied(Player::Black);
+        game.occupancy[3] = VertexState::Occupied(Player::Black);
+        game.occupancy[4] = VertexState::Occupied(Player::White);
+        game.occupancy[5] = VertexState::Occupied(Player::White);
+
+        game.snapshot_history.clear();
+        game.snapshot_history.insert(game.current_snapshot());
+
+        game.play_move(VertexId::new(1)).unwrap();
+        assert!(matches!(
+            game.status(),
+            GameStatus::Finished(GameEndReason::NoLegalMoves { .. })
+        ));
+
+        let finished_state = complete_state(&game);
+
+        assert_eq!(game.play_move(VertexId::new(0)), Err(MoveError::GameOver));
+        assert_eq!(complete_state(&game), finished_state);
+
+        assert_eq!(game.pass_turn(), Err(PassError::GameOver));
+        assert_eq!(complete_state(&game), finished_state);
+
+        assert_eq!(game.resign(), Err(ResignError::GameOver));
+        assert_eq!(complete_state(&game), finished_state);
     }
 
     #[test]
@@ -1857,6 +2008,79 @@ mod test {
         assert_eq!(
             game.result(),
             Some(GameResult::WinByResignation {
+                winner: Player::White,
+            })
+        );
+    }
+
+    #[test]
+    fn test_result_black_wins_by_no_legal_moves() {
+        let edges = [
+            (VertexId::new(0), VertexId::new(1)),
+            (VertexId::new(0), VertexId::new(2)),
+            (VertexId::new(0), VertexId::new(3)),
+            (VertexId::new(1), VertexId::new(4)),
+            (VertexId::new(1), VertexId::new(5)),
+            (VertexId::new(2), VertexId::new(6)),
+            (VertexId::new(3), VertexId::new(7)),
+            (VertexId::new(4), VertexId::new(8)),
+            (VertexId::new(5), VertexId::new(9)),
+        ];
+
+        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let mut game = Game::new(board);
+
+        game.occupancy[0] = VertexState::Occupied(Player::White);
+        game.occupancy[2] = VertexState::Occupied(Player::Black);
+        game.occupancy[3] = VertexState::Occupied(Player::Black);
+        game.occupancy[4] = VertexState::Occupied(Player::White);
+        game.occupancy[5] = VertexState::Occupied(Player::White);
+
+        game.snapshot_history.clear();
+        game.snapshot_history.insert(game.current_snapshot());
+
+        game.play_move(VertexId::new(1)).unwrap();
+
+        assert_eq!(
+            game.result(),
+            Some(GameResult::WinByNoLegalMoves {
+                winner: Player::Black,
+            })
+        );
+    }
+
+    #[test]
+    fn test_result_white_wins_by_no_legal_moves() {
+        let edges = [
+            (VertexId::new(0), VertexId::new(1)),
+            (VertexId::new(0), VertexId::new(2)),
+            (VertexId::new(0), VertexId::new(3)),
+            (VertexId::new(1), VertexId::new(4)),
+            (VertexId::new(1), VertexId::new(5)),
+            (VertexId::new(2), VertexId::new(6)),
+            (VertexId::new(3), VertexId::new(7)),
+            (VertexId::new(4), VertexId::new(8)),
+            (VertexId::new(5), VertexId::new(9)),
+        ];
+
+        let board = BoardGraph::from_edges(10, edges).unwrap();
+        let mut game = Game::new(board);
+
+        game.occupancy[0] = VertexState::Occupied(Player::Black);
+        game.occupancy[2] = VertexState::Occupied(Player::White);
+        game.occupancy[3] = VertexState::Occupied(Player::White);
+        game.occupancy[4] = VertexState::Occupied(Player::Black);
+        game.occupancy[5] = VertexState::Occupied(Player::Black);
+        game.current_player = Player::White;
+
+        game.snapshot_history.clear();
+        game.snapshot_history.insert(game.current_snapshot());
+
+        game.play_move(VertexId::new(1)).unwrap();
+
+        assert_eq!(
+            game.result(),
+            Some(GameResult::WinByNoLegalMoves {
                 winner: Player::White,
             })
         );

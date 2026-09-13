@@ -236,7 +236,7 @@ Any normal stone placement resets the consecutive-pass count.
 
 ## 11. End of the Game
 
-The game ends in either of the following cases.
+The game ends in any of the following cases.
 
 ### Case 1: Two consecutive passes
 
@@ -249,6 +249,14 @@ If one player passes and the other player then also passes:
 A player may resign on their turn.
 
 The opponent wins immediately after a resignation, and the board is not scored.
+
+### Case 3: No legal moves
+
+If a move leaves the opponent with no legal moves on the board:
+
+**The game ends immediately.**
+
+The player who made that move wins immediately.
 
 ---
 
