@@ -236,7 +236,7 @@ Any normal stone placement resets the consecutive-pass count.
 
 ## 11. End of the Game
 
-The game ends in either of the following cases.
+The game ends in any of the following cases.
 
 ### Case 1: Two consecutive passes
 
@@ -250,6 +250,14 @@ A player may resign on their turn.
 
 The opponent wins immediately after a resignation, and the board is not scored.
 
+### Case 3: No legal moves
+
+If a move leaves the opponent with no legal moves on the board:
+
+**The game ends immediately.**
+
+The board is scored according to the rules in Section 14, and the winner is determined by the final score.
+
 ---
 
 ## 12. Dead Stones
@@ -260,7 +268,7 @@ If a player believes that an opposing group is dead, the player should capture i
 
 Therefore:
 
-> Every stone that remains on the board after two consecutive passes is treated as alive and participates in scoring.
+> Every stone that remains on the board when the game ends for scoring (after two consecutive passes or when no legal moves remain) is treated as alive and participates in scoring.
 
 If a player believes the board still contains dead stones that must be resolved, that player should continue playing instead of passing.
 

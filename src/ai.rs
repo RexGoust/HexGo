@@ -48,18 +48,32 @@ pub(crate) fn update_ai(
     mut ai: ResMut<AiState>,
     worker: Res<WorkerResource>,
 ) {
-    let GameMode::AI(player) = session.0.mode() else {
-        return;
-    };
-
     if session.0.status() != GameStatus::Playing {
         ai.future = None;
         return;
     }
 
-    if session.0.current_player() == player {
-        ai.future = None;
-        return;
+    match session.0.mode() {
+        GameMode::AI(player) if session.0.current_player() == player => {
+            ai.future = None;
+            return;
+        }
+        GameMode::AI(player) if session.0.current_player() != player => {}
+        GameMode::Local => {
+            ai.future = None;
+            return;
+        }
+
+        GameMode::Network(_) => {
+            ai.future = None;
+            return;
+        }
+
+        GameMode::SelfPlay => {}
+        GameMode::AI(_) => {
+            ai.future = None;
+            return;
+        }
     }
 
     if let Some(future) = &ai.future {

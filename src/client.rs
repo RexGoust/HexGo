@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     ai::{self, AiState},
-    game::{board::VertexId, player::Player::Black},
+    game::{board::VertexId, state::GameStatus},
     session::{GameMode, GameSession, SessionCommand, SessionError},
     worker::Worker,
 };
@@ -32,7 +32,7 @@ pub struct ClientPlugin;
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(board::BOARD_BACKGROUND))
-            .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
+            .insert_resource(SessionResource(GameSession::compact(GameMode::SelfPlay)))
             .insert_resource(WorkerResource(Worker::new()))
             .init_resource::<AiState>()
             .init_resource::<UiState>();
@@ -186,11 +186,21 @@ fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
         GameMode::Network(player) => player == current_player,
 
         GameMode::AI(player) => player == current_player,
+
+        GameMode::SelfPlay => false,
     }
 }
 
 fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionCommand) {
-    if !can_do_game_action(session, ui) {
+    if ui.modal.is_some() {
+        return;
+    }
+
+    if !can_do_game_action(session, ui) && command != SessionCommand::Restart {
+        return;
+    }
+
+    if command == SessionCommand::Restart && session.game().status() == GameStatus::Playing {
         return;
     }
 
