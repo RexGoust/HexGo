@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     ai::{self, AiState},
-    game::board::VertexId,
+    game::{board::VertexId, state::GameStatus},
     session::{GameMode, GameSession, SessionCommand, SessionError},
     worker::Worker,
 };
@@ -192,7 +192,15 @@ fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
 }
 
 fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionCommand) {
-    if !can_do_game_action(session, ui) {
+    if ui.modal.is_some() {
+        return;
+    }
+
+    if !can_do_game_action(session, ui) && command != SessionCommand::Restart {
+        return;
+    }
+
+    if command == SessionCommand::Restart && session.game().status() == GameStatus::Playing {
         return;
     }
 
