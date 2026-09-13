@@ -1,6 +1,5 @@
 mod dataset;
 mod loss;
-mod model;
 mod self_play;
 mod tensor;
 mod train;
@@ -12,7 +11,7 @@ use burn::{
     optim::AdamConfig,
     record::CompactRecorder,
 };
-use model::HexGoModel;
+use hex_go::ai::model::HexGoModel;
 use rand::seq::SliceRandom;
 
 use crate::{

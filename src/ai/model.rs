@@ -1,9 +1,9 @@
-use crate::dataset::INPUT_SIZE;
+use crate::ai::encoder::INPUT_SIZE;
+use crate::game::action::ACTION_SIZE;
 use burn::{
     nn::{Linear, LinearConfig, Relu},
     prelude::*,
 };
-use hex_go::game::action::ACTION_SIZE;
 
 const HIDDEN_SIZE: usize = 128;
 const POLICY_SIZE: usize = ACTION_SIZE;
