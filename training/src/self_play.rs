@@ -55,9 +55,6 @@ pub fn play_game<S: Search>(
                     policy,
                     player,
                 });
-                // End the game immediately to avoid unnecessary passes.
-                passes += 2;
-                game.pass_turn().unwrap();
                 game.pass_turn().unwrap();
                 continue;
             }
@@ -118,7 +115,7 @@ pub fn generate_self_play_games(games: usize, iterations: usize) -> Vec<Training
         .flat_map(|_| {
             let mut game = create_game();
             let mut mcts = Mcts::new();
-
+            //let mut mcts = NeuralMcts::new(DummyNetwork);
             play_game(&mut game, &mut mcts, iterations)
         })
         .collect()
