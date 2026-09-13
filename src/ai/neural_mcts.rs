@@ -147,9 +147,7 @@ impl<N: NeuralNetwork> NeuralMcts<N> {
 
     fn terminal_value(result: GameResult, player: Player) -> f32 {
         match result {
-            GameResult::WinByScore { winner, .. }
-            | GameResult::WinByResignation { winner }
-            | GameResult::WinByNoLegalMoves { winner } => {
+            GameResult::WinByScore { winner, .. } | GameResult::WinByResignation { winner } => {
                 if winner == player {
                     1.0
                 } else {
@@ -479,20 +477,5 @@ mod tests {
         let (node, _) = mcts.select(&game);
 
         assert_eq!(node, 1);
-    }
-
-    #[test]
-    fn terminal_value_handles_win_by_no_legal_moves() {
-        let result = GameResult::WinByNoLegalMoves {
-            winner: Player::Black,
-        };
-        assert_eq!(
-            NeuralMcts::<DummyNetwork>::terminal_value(result, Player::Black),
-            1.0
-        );
-        assert_eq!(
-            NeuralMcts::<DummyNetwork>::terminal_value(result, Player::White),
-            -1.0
-        );
     }
 }

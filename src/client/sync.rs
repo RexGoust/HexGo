@@ -183,15 +183,6 @@ fn compact_result_summary(session: &GameSession, result: GameResult) -> String {
                 score.black_total, score.white_total
             )
         }
-        GameResult::WinByNoLegalMoves { winner } => {
-            let score = session.score_breakdown();
-            format!(
-                "对局结果：{}胜\n黑方总分：{:.1} · 白方总分：{:.1}",
-                player_name(winner),
-                score.black_total,
-                score.white_total
-            )
-        }
     }
 }
 
@@ -246,15 +237,6 @@ fn result_summary(session: &GameSession, result: GameResult) -> String {
             format!(
                 "对局结果\n和棋\n\n黑方总分：{:.1}\n白方总分：{:.1}",
                 score.black_total, score.white_total
-            )
-        }
-        GameResult::WinByNoLegalMoves { winner } => {
-            let score = session.score_breakdown();
-            format!(
-                "对局结果\n{}赢\n\n黑方总分：{:.1}\n白方总分：{:.1}",
-                player_name(winner),
-                score.black_total,
-                score.white_total
             )
         }
     }
@@ -353,18 +335,5 @@ mod tests {
 
         let compact_summary = compact_result_summary(&session, session.result().unwrap());
         assert!(compact_summary.lines().count() <= 3);
-    }
-
-    #[test]
-    fn no_legal_moves_result_summary_lines_fit_the_sidebar_card() {
-        let session = GameSession::compact(GameMode::Local);
-        for winner in [Player::Black, Player::White] {
-            let result = GameResult::WinByNoLegalMoves { winner };
-            let summary = result_summary(&session, result);
-            assert!(summary.lines().all(|line| line.chars().count() <= 14));
-
-            let compact = compact_result_summary(&session, result);
-            assert!(compact.lines().count() <= 3);
-        }
     }
 }

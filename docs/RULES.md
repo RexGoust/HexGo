@@ -256,7 +256,7 @@ If a move leaves the opponent with no legal moves on the board:
 
 **The game ends immediately.**
 
-The player who made that move wins immediately.
+The board is scored according to the rules in Section 14, and the winner is determined by the final score.
 
 ---
 
@@ -268,7 +268,7 @@ If a player believes that an opposing group is dead, the player should capture i
 
 Therefore:
 
-> Every stone that remains on the board after two consecutive passes is treated as alive and participates in scoring.
+> Every stone that remains on the board when the game ends for scoring (after two consecutive passes or when no legal moves remain) is treated as alive and participates in scoring.
 
 If a player believes the board still contains dead stones that must be resolved, that player should continue playing instead of passing.
 

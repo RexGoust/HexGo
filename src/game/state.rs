@@ -16,5 +16,5 @@ pub enum GameStatus {
 pub enum GameEndReason {
     ConsecutivePasses,
     Resignation { resigned: Player, winner: Player },
-    NoLegalMoves { winner: Player },
+    NoLegalMoves,
 }

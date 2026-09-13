@@ -132,9 +132,7 @@ pub fn to_training_samples(
         .into_iter()
         .map(|position| {
             let value = match result {
-                GameResult::WinByScore { winner, .. }
-                | GameResult::WinByResignation { winner }
-                | GameResult::WinByNoLegalMoves { winner } => {
+                GameResult::WinByScore { winner, .. } | GameResult::WinByResignation { winner } => {
                     if winner == position.player {
                         1.0
                     } else {
@@ -290,7 +288,6 @@ mod tests {
         match game.result().unwrap() {
             GameResult::WinByScore { .. }
             | GameResult::WinByResignation { .. }
-            | GameResult::WinByNoLegalMoves { .. }
             | GameResult::Draw => {}
         }
     }
@@ -347,31 +344,5 @@ mod tests {
 
         assert_eq!(samples.len(), 2);
         assert!(samples.iter().all(|sample| sample.value == 0.0));
-    }
-
-    #[test]
-    fn to_training_samples_assigns_values_for_win_by_no_legal_moves() {
-        let positions = vec![
-            SelfPlayPosition {
-                state: vec![0.0; TEST_INPUT_SIZE],
-                policy: vec![0.0; ACTION_SIZE],
-                player: Player::Black,
-            },
-            SelfPlayPosition {
-                state: vec![1.0; TEST_INPUT_SIZE],
-                policy: vec![0.5; ACTION_SIZE],
-                player: Player::White,
-            },
-        ];
-
-        let result = GameResult::WinByNoLegalMoves {
-            winner: Player::White,
-        };
-
-        let samples = to_training_samples(positions, result);
-
-        assert_eq!(samples.len(), 2);
-        assert_eq!(samples[0].value, -1.0);
-        assert_eq!(samples[1].value, 1.0);
     }
 }
