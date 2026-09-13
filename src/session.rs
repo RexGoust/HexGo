@@ -35,6 +35,7 @@ pub enum GameMode {
     Local,
     AI(Player),
     Network(Player),
+    SelfPlay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
