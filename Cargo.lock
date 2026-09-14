@@ -10,8 +10,11 @@ dependencies = [
  "bevy_embedded_assets",
  "burn",
  "getrandom 0.4.3",
+ "js-sys",
  "rand 0.10.2",
  "rand_distr 0.6.0",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
