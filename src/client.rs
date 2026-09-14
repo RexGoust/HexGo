@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::{
     ai::{self, AiState, NeuralNetworkResource, burn_neural_network::BurnNeuralNetwork},
-    game::{board::VertexId, state::GameStatus},
+    game::{board::VertexId, player::Player::Black, state::GameStatus},
     session::{GameMode, GameSession, SessionCommand, SessionError},
     worker::Worker,
 };
@@ -34,7 +34,7 @@ pub struct ClientPlugin;
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(board::BOARD_BACKGROUND))
-            .insert_resource(SessionResource(GameSession::compact(GameMode::SelfPlay)))
+            .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
             .insert_resource(NeuralNetworkResource {
                 network: Arc::new(BurnNeuralNetwork::load()),

@@ -46,6 +46,14 @@ impl BurnNeuralNetwork {
             device: *device,
         }
     }
+
+    pub fn from_model(model: &HexGoModel<Backend>) -> Self {
+        let device = &Default::default();
+        Self {
+            model: model.clone(),
+            device: *device,
+        }
+    }
 }
 
 impl NeuralNetwork for BurnNeuralNetwork {

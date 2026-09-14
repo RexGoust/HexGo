@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use hex_go::{
-    ai::{encoder::encode_game, mcts::Mcts, search::Search},
+    ai::{encoder::encode_game, search::Search},
     board_layout::BoardDefinition,
     game::{
         Game, GameResult,
@@ -19,6 +19,8 @@ pub struct SelfPlayPosition {
     pub policy: Vec<f32>,
     pub player: Player,
 }
+
+const MAX_ACTIONS: usize = 1000;
 
 fn sample_action_by_temperature(policy: &[(Action, f32)], temperature: f32) -> Action {
     assert!(!policy.is_empty());
@@ -125,13 +127,11 @@ pub fn play_game<S: Search>(
             player,
         });
 
-        if actions.is_multiple_of(1000) {
-            println!(
-                "actions={}, legal_moves={}, result={:?}",
-                actions,
-                game.legal_moves().len(),
-                game.result()
-            );
+        if actions >= MAX_ACTIONS {
+            println!("action over {} times, quitting game...", MAX_ACTIONS);
+            let _ = game.pass_turn();
+            let _ = game.pass_turn();
+            break;
         }
     }
 
@@ -153,12 +153,20 @@ fn create_game() -> Game {
     Game::new(board)
 }
 
-pub fn generate_self_play_games(games: usize, iterations: usize) -> Vec<TrainingSample> {
+pub fn generate_self_play_games<S, F>(
+    games: usize,
+    iterations: usize,
+    create_mcts: F,
+) -> Vec<TrainingSample>
+where
+    S: Search,
+    F: Fn() -> S + Sync,
+{
     (0..games)
         .into_par_iter()
         .flat_map(|_| {
             let mut game = create_game();
-            let mut mcts = Mcts::new();
+            let mut mcts = create_mcts();
             //let mut mcts = NeuralMcts::new(DummyNetwork);
             play_game(&mut game, &mut mcts, iterations)
         })
