@@ -182,14 +182,18 @@ pub fn run(iterations: usize, start_version: usize) {
 
         if sucess {
             save_model(version, candidate);
+            println!(
+                "v{}: train finished, time comsumed: {:?}",
+                version,
+                t.elapsed()
+            );
             version += 1;
+        } else {
+            println!(
+                "v{}: train failed, time comsumed: {:?}",
+                version,
+                t.elapsed()
+            );
         }
-
-        println!(
-            "v{}: train {}, time comsumed: {:?}",
-            version,
-            if sucess { "finished" } else { "failed" },
-            t.elapsed()
-        );
     }
 }
