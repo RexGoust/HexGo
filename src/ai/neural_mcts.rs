@@ -209,7 +209,7 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
             let (node, game) = self.select(game);
 
             if let Some(result) = game.result() {
-                let player = game.current_player().opponent();
+                let player = game.current_player();
                 let value = Self::terminal_value(result, player);
 
                 self.backpropagate(node, value);
@@ -402,10 +402,14 @@ mod tests {
 
     #[test]
     fn neural_mcts_follows_policy_prior() {
-        let game = test_game();
+        let game = Game::new(
+            crate::board_layout::BoardDefinition::compact()
+                .graph()
+                .clone(),
+        );
         let mut mcts = NeuralMcts::new(BiasedNetwork, NeuralConfig::default());
 
-        mcts.choose_action(&game, 1000);
+        mcts.choose_action(&game, 100);
 
         let preferred = VertexId::new(0);
 

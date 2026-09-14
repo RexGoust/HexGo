@@ -20,6 +20,8 @@ pub struct SelfPlayPosition {
     pub player: Player,
 }
 
+const MAX_ACTIONS: usize = 1000;
+
 fn sample_action_by_temperature(policy: &[(Action, f32)], temperature: f32) -> Action {
     assert!(!policy.is_empty());
     assert!(temperature >= 0.0);
@@ -125,13 +127,11 @@ pub fn play_game<S: Search>(
             player,
         });
 
-        if actions.is_multiple_of(1000) {
-            println!(
-                "actions={}, legal_moves={}, result={:?}",
-                actions,
-                game.legal_moves().len(),
-                game.result()
-            );
+        if actions >= MAX_ACTIONS {
+            println!("action over {} times, quitting game...", MAX_ACTIONS);
+            let _ = game.pass_turn();
+            let _ = game.pass_turn();
+            break;
         }
     }
 

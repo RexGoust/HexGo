@@ -41,15 +41,15 @@ fn train_version_v0(device: &FlexDevice) {
 
     let model = HexGoModel::<Backend>::new(device);
 
-    let model = train(model, &samples, device);
+    let model = train(model, samples, device);
 
     save_model(0, model);
 
-    println!("v0: train finish, time comsume: {:?}", t.elapsed());
+    println!("v0: train finish, time comsumed: {:?}", t.elapsed());
 }
 
 fn load_model(version: usize, device: &FlexDevice) -> HexGoModel<Backend> {
-    let path = format!("checkpoints/v{}/model.mpk", version);
+    let path = format!("checkpoints/v{}/model", version);
 
     HexGoModel::new(device)
         .load_file(path, &CompactRecorder::new(), device)
@@ -85,17 +85,20 @@ fn generate_self_play_data(model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
     samples
 }
 
-fn split_samples(samples: &[TrainingSample]) -> (&[TrainingSample], &[TrainingSample]) {
+fn split_samples(mut samples: Vec<TrainingSample>) -> (Vec<TrainingSample>, Vec<TrainingSample>) {
     let split_index = (samples.len() as f32 * TRAIN_RATIO) as usize;
-    samples.split_at(split_index)
+
+    let validation_samples = samples.split_off(split_index);
+
+    (samples, validation_samples)
 }
 
 fn train(
     mut model: HexGoModel<Backend>,
-    samples: &[TrainingSample],
+    samples: Vec<TrainingSample>,
     device: &FlexDevice,
 ) -> HexGoModel<Backend> {
-    let (train_samples, validation_samples) = split_samples(samples);
+    let (mut train_samples, validation_samples) = split_samples(samples);
 
     println!(
         "train={}, validation={}",
@@ -106,6 +109,7 @@ fn train(
     let mut optimizer = AdamConfig::new().init();
 
     for epoch in 0..EPOCHS {
+        train_samples.shuffle(&mut rand::rng());
         for (batch_index, batch) in train_samples.chunks(BATCH_SIZE).enumerate() {
             let (new_model, loss) = train_on_samples(model, &mut optimizer, batch, device, 1e-3);
 
@@ -114,7 +118,7 @@ fn train(
             println!("epoch={epoch}, batch={batch_index}, loss={loss}");
         }
 
-        let validation_loss = validation_step(&model, validation_samples, device);
+        let validation_loss = validation_step(&model, &validation_samples, device);
 
         println!("epoch={epoch}, validation_loss={validation_loss}");
     }
@@ -138,12 +142,12 @@ pub fn run() {
 
         println!("v{}: generated {} samples", version, samples.len());
 
-        let model = train(model, &samples, device);
+        let model = train(model, samples, device);
 
         save_model(version, model);
 
         println!(
-            "v{}: train finish, time comsume: {:?}",
+            "v{}: train finish, time comsumed: {:?}",
             version,
             t.elapsed()
         );

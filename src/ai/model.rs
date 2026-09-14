@@ -39,7 +39,7 @@ impl<B: Backend> HexGoModel<B> {
         let x = Relu::new().forward(x);
 
         let policy = self.policy.forward(x.clone());
-        let value = self.value.forward(x);
+        let value = self.value.forward(x).tanh();
 
         ModelOutput { policy, value }
     }
