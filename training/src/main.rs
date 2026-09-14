@@ -2,6 +2,7 @@ mod dataset;
 mod evaluation;
 mod loss;
 mod pipeline;
+mod sampler;
 mod self_play;
 mod tensor;
 mod train;

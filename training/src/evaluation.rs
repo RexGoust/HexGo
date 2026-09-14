@@ -11,6 +11,8 @@ use hex_go::{
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
+use crate::sampler::sample_action_by_temperature;
+
 pub struct EvaluationResult {
     pub games: u32,
     pub wins: u32,
@@ -47,11 +49,18 @@ fn play_model(
     while game.result().is_none() {
         let player = game.current_player();
 
-        let action = match player {
-            Player::Black => black.choose_action(game, iterations),
-            Player::White => white.choose_action(game, iterations),
-        }
-        .unwrap_or(Pass);
+        let search = match player {
+            Player::Black => black.search(game, iterations),
+            Player::White => white.search(game, iterations),
+        };
+
+        let action = match search {
+            Some(search) => {
+                let temperature = if actions < 10 { 1.0 } else { 0.0 };
+                sample_action_by_temperature(&search.policy, temperature)
+            }
+            None => Pass,
+        };
 
         match action {
             Action::Move(vertex) => {
@@ -146,15 +155,15 @@ where
         .into_par_iter()
         .map(|index| {
             let mut white = if index % 2 == 0 {
-                candidate()
-            } else {
                 baseline()
+            } else {
+                candidate()
             };
 
             let mut black = if index % 2 == 0 {
-                baseline()
-            } else {
                 candidate()
+            } else {
+                baseline()
             };
 
             let mut game = create_game();

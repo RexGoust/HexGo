@@ -140,13 +140,13 @@ pub fn evaluate(candidate: &HexGoModel<Backend>, baseline: &HexGoModel<Backend>)
         || {
             NeuralMcts::new(
                 BurnNeuralNetwork::from_model(&candidate),
-                NeuralConfig { add_noise: true },
+                NeuralConfig::default(),
             )
         },
         || {
             NeuralMcts::new(
                 BurnNeuralNetwork::from_model(&baseline),
-                NeuralConfig { add_noise: true },
+                NeuralConfig::default(),
             )
         },
         EVALUATE_GAMES,
@@ -182,14 +182,18 @@ pub fn run(iterations: usize, start_version: usize) {
 
         if sucess {
             save_model(version, candidate);
+            println!(
+                "v{}: train finished, time comsumed: {:?}",
+                version,
+                t.elapsed()
+            );
             version += 1;
+        } else {
+            println!(
+                "v{}: train failed, time comsumed: {:?}",
+                version,
+                t.elapsed()
+            );
         }
-
-        println!(
-            "v{}: train {}, time comsumed: {:?}",
-            version,
-            if sucess { "finished" } else { "failed" },
-            t.elapsed()
-        );
     }
 }
