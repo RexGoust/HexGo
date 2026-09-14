@@ -140,13 +140,13 @@ pub fn evaluate(candidate: &HexGoModel<Backend>, baseline: &HexGoModel<Backend>)
         || {
             NeuralMcts::new(
                 BurnNeuralNetwork::from_model(&candidate),
-                NeuralConfig { add_noise: true },
+                NeuralConfig::default(),
             )
         },
         || {
             NeuralMcts::new(
                 BurnNeuralNetwork::from_model(&baseline),
-                NeuralConfig { add_noise: true },
+                NeuralConfig::default(),
             )
         },
         EVALUATE_GAMES,
