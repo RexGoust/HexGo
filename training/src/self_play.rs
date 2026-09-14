@@ -152,7 +152,7 @@ mod tests {
 
     use hex_go::{
         ai::{
-            neural_mcts::NeuralMcts,
+            neural_mcts::{NeuralConfig, NeuralMcts},
             neural_network::{Evaluation, NeuralNetwork},
         },
         game::{
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn self_play_generates_training_samples() {
         let mut game = test_game();
-        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork);
+        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
         let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
 
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn self_play_records_correct_player_perspective() {
         let mut game = test_game();
-        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork);
+        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
         let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
 
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn self_play_policy_contains_only_valid_actions() {
         let mut game = test_game();
-        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork);
+        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
         let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
 
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn self_play_ends_with_finished_game() {
         let mut game = test_game();
-        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork);
+        let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
         let _samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
 

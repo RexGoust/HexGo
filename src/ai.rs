@@ -9,7 +9,11 @@ use bevy::{
 };
 
 use crate::{
-    ai::{burn_neural_network::BurnNeuralNetwork, neural_mcts::NeuralMcts, search::Search},
+    ai::{
+        burn_neural_network::BurnNeuralNetwork,
+        neural_mcts::{NeuralConfig, NeuralMcts},
+        search::Search,
+    },
     client::{SessionResource, WorkerResource},
     game::{Game, action::Action, board::VertexId, state::GameStatus},
     session::{GameMode, SessionCommand},
@@ -18,6 +22,7 @@ use crate::{
 };
 
 pub mod burn_neural_network;
+pub mod dummy_network;
 pub mod encoder;
 pub mod mcts;
 pub mod model;
@@ -38,7 +43,7 @@ pub struct NeuralNetworkResource {
 
 fn choose_ai_move(game: Game, network: Arc<BurnNeuralNetwork>) -> Option<VertexId> {
     //let mut mcts = Mcts::new();
-    let mut mcts = NeuralMcts::new(network);
+    let mut mcts = NeuralMcts::new(network, NeuralConfig { add_noise: true });
     let t = Timer::now();
     let action = mcts.choose_action(&game, 1000);
     if game.status() == GameStatus::Playing {
