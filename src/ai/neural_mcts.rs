@@ -1,33 +1,13 @@
+use rand_distr::{Distribution, Gamma};
+
 use crate::{
-    ai::{
-        neural_network::{Evaluation, NeuralNetwork},
-        search::Search,
-        search_result::SearchResult,
-    },
+    ai::{neural_network::NeuralNetwork, search::Search, search_result::SearchResult},
     game::{Game, GameResult, action::Action, player::Player},
 };
-pub struct DummyNetwork;
 
-impl NeuralNetwork for DummyNetwork {
-    fn evaluate(&self, game: &Game, _player: Player) -> Evaluation {
-        let legal_moves = game.legal_moves();
-
-        let mut policy = Vec::with_capacity(legal_moves.len() + 1);
-
-        if legal_moves.is_empty() {
-            policy.push((Action::Pass, 1.0));
-        } else {
-            let prior = 1.0 / legal_moves.len() as f32;
-
-            for action in legal_moves {
-                policy.push((Action::Move(action), prior));
-            }
-
-            policy.push((Action::Pass, 0.0));
-        }
-
-        Evaluation { policy, value: 0.0 }
-    }
+#[derive(Default)]
+pub struct NeuralConfig {
+    pub add_noise: bool,
 }
 
 struct NeuralMctsNode {
@@ -41,16 +21,50 @@ struct NeuralMctsNode {
     value_sum: f32,
 }
 
+const DIRICHLET_ALPHA: f32 = 0.3;
+const DIRICHLET_EPSILON: f32 = 0.25;
+
+fn sample_dirichlet(alpha: f32, size: usize) -> Vec<f32> {
+    let mut rng = rand::rng();
+    let gamma = Gamma::new(alpha, 1.0).expect("invalid Dirichlet alpha");
+
+    let mut values: Vec<f32> = (0..size).map(|_| gamma.sample(&mut rng)).collect();
+
+    let sum: f32 = values.iter().sum();
+
+    for value in &mut values {
+        *value /= sum;
+    }
+
+    values
+}
+
+fn add_dirichlet_noise(policy: &[(Action, f32)]) -> Vec<(Action, f32)> {
+    let noise = sample_dirichlet(DIRICHLET_ALPHA, policy.len());
+
+    policy
+        .iter()
+        .zip(noise)
+        .map(|((action, policy), noise)| {
+            let probability = (1.0 - DIRICHLET_EPSILON) * policy + DIRICHLET_EPSILON * noise;
+
+            (*action, probability)
+        })
+        .collect()
+}
+
 pub struct NeuralMcts<N> {
     nodes: Vec<NeuralMctsNode>,
     network: N,
+    config: NeuralConfig,
 }
 
 impl<N: NeuralNetwork> NeuralMcts<N> {
-    pub fn new(network: N) -> Self {
+    pub fn new(network: N, config: NeuralConfig) -> Self {
         Self {
             nodes: Vec::new(),
             network,
+            config,
         }
     }
     fn puct_score(
@@ -107,15 +121,8 @@ impl<N: NeuralNetwork> NeuralMcts<N> {
         }
     }
 
-    fn expand(&mut self, node: usize, game: &Game, evaluation: &Evaluation) {
-        for (action, prior) in evaluation.policy.iter() {
-            let legal = match action {
-                Action::Move(vertex) => game.is_legal_move(*vertex),
-                Action::Pass => true,
-            };
-            if !legal {
-                continue;
-            }
+    fn expand(&mut self, node: usize, policy: &[(Action, f32)]) {
+        for (action, prior) in policy.iter() {
             let child_id = self.nodes.len();
 
             self.nodes.push(NeuralMctsNode {
@@ -158,6 +165,27 @@ impl<N: NeuralNetwork> NeuralMcts<N> {
             GameResult::Draw => 0.0,
         }
     }
+
+    fn filter_and_normalize_policy(policy: &[(Action, f32)], game: &Game) -> Vec<(Action, f32)> {
+        let mut policy: Vec<_> = policy
+            .iter()
+            .filter(|(action, _)| match action {
+                Action::Move(vertex) => game.is_legal_move(*vertex),
+                Action::Pass => true,
+            })
+            .copied()
+            .collect();
+
+        let sum: f32 = policy.iter().map(|(_, probability)| probability).sum();
+
+        if sum > 0.0 {
+            for (_, probability) in &mut policy {
+                *probability /= sum;
+            }
+        }
+
+        policy
+    }
 }
 
 impl<N: NeuralNetwork> Search for NeuralMcts<N> {
@@ -191,7 +219,15 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
             let player = game.current_player();
             let evaluation = self.network.evaluate(&game, player);
 
-            self.expand(node, &game, &evaluation);
+            let policy = Self::filter_and_normalize_policy(&evaluation.policy, &game);
+
+            let policy = if self.config.add_noise && node == 0 {
+                add_dirichlet_noise(&policy)
+            } else {
+                policy
+            };
+
+            self.expand(node, &policy);
             self.backpropagate(node, evaluation.value);
         }
 
@@ -229,9 +265,12 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{
-        Game,
-        board::{BoardGraph, VertexId},
+    use crate::{
+        ai::{dummy_network::DummyNetwork, neural_network::Evaluation},
+        game::{
+            Game,
+            board::{BoardGraph, VertexId},
+        },
     };
 
     fn test_game() -> Game {
@@ -251,7 +290,7 @@ mod tests {
     #[test]
     fn neural_mcts_returns_legal_action() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         let action = mcts.choose_action(&game, 100).unwrap();
 
@@ -264,7 +303,7 @@ mod tests {
     #[test]
     fn neural_mcts_root_visits_match_iterations() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         mcts.choose_action(&game, 100);
 
@@ -274,7 +313,7 @@ mod tests {
     #[test]
     fn neural_mcts_root_children_are_legal() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         mcts.choose_action(&game, 100);
 
@@ -291,7 +330,7 @@ mod tests {
     #[test]
     fn neural_mcts_children_have_prior() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         mcts.choose_action(&game, 1);
 
@@ -305,7 +344,7 @@ mod tests {
     #[test]
     fn neural_mcts_root_prior_sums_to_one() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         mcts.choose_action(&game, 1);
 
@@ -364,7 +403,7 @@ mod tests {
     #[test]
     fn neural_mcts_follows_policy_prior() {
         let game = test_game();
-        let mut mcts = NeuralMcts::new(BiasedNetwork);
+        let mut mcts = NeuralMcts::new(BiasedNetwork, NeuralConfig::default());
 
         mcts.choose_action(&game, 1000);
 
@@ -445,7 +484,7 @@ mod tests {
         .unwrap();
 
         let game = Game::new(board);
-        let mut mcts = NeuralMcts::new(DummyNetwork);
+        let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
 
         mcts.nodes.push(NeuralMctsNode {
             parent: None,
@@ -477,5 +516,21 @@ mod tests {
         let (node, _) = mcts.select(&game);
 
         assert_eq!(node, 1);
+    }
+
+    #[test]
+    fn dirichlet_noise_changes_policy() {
+        let policy = vec![
+            (Action::Move(VertexId::new(0)), 0.5),
+            (Action::Move(VertexId::new(1)), 0.3),
+            (Action::Move(VertexId::new(2)), 0.2),
+        ];
+
+        let noisy = add_dirichlet_noise(&policy);
+
+        let sum: f32 = noisy.iter().map(|(_, probability)| probability).sum();
+
+        assert!((sum - 1.0).abs() < 1e-5);
+        assert_ne!(noisy[0].1, 0.5);
     }
 }
