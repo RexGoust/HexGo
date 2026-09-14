@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use hex_go::{
-    ai::{encoder::encode_game, mcts::Mcts, search::Search},
+    ai::{encoder::encode_game, search::Search},
     board_layout::BoardDefinition,
     game::{
         Game, GameResult,
@@ -153,12 +153,20 @@ fn create_game() -> Game {
     Game::new(board)
 }
 
-pub fn generate_self_play_games(games: usize, iterations: usize) -> Vec<TrainingSample> {
+pub fn generate_self_play_games<S, F>(
+    games: usize,
+    iterations: usize,
+    create_mcts: F,
+) -> Vec<TrainingSample>
+where
+    S: Search,
+    F: Fn() -> S + Sync,
+{
     (0..games)
         .into_par_iter()
         .flat_map(|_| {
             let mut game = create_game();
-            let mut mcts = Mcts::new();
+            let mut mcts = create_mcts();
             //let mut mcts = NeuralMcts::new(DummyNetwork);
             play_game(&mut game, &mut mcts, iterations)
         })
