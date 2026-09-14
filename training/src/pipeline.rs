@@ -21,12 +21,12 @@ use crate::{
 };
 type Backend = Autodiff<Flex>;
 
-const SELF_PLAY_GAMES: usize = 32;
-const MCTS_ITERATIONS: usize = 32;
+const SELF_PLAY_GAMES: usize = 1000;
+const MCTS_ITERATIONS: usize = 800;
 
 const TRAIN_RATIO: f32 = 0.9;
 const BATCH_SIZE: usize = 256;
-const EPOCHS: usize = 5;
+const EPOCHS: usize = 10;
 
 fn train_version_v0(device: &FlexDevice) {
     let t = std::time::Instant::now();
@@ -126,12 +126,12 @@ fn train(
     model
 }
 
-pub fn run() {
+pub fn run(version: usize) {
     let device = &Default::default();
 
     train_version_v0(device);
 
-    for version in 1..10 {
+    for version in 1..=version {
         let t = std::time::Instant::now();
 
         println!("v{}: start training...", version);

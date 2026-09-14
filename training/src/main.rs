@@ -6,5 +6,5 @@ mod tensor;
 mod train;
 
 fn main() {
-    pipeline::run();
+    pipeline::run(1);
 }
