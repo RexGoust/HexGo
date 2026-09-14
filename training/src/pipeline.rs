@@ -16,6 +16,7 @@ use rand::seq::SliceRandom;
 
 use crate::{
     dataset::TrainingSample,
+    evaluation::evaluate_model,
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
 };
@@ -24,9 +25,14 @@ type Backend = Autodiff<Flex>;
 const SELF_PLAY_GAMES: usize = 1000;
 const MCTS_ITERATIONS: usize = 800;
 
+const EVALUATE_GAMES: usize = 200;
+const EVALUATE_ITERATIONS: usize = 800;
+
 const TRAIN_RATIO: f32 = 0.9;
 const BATCH_SIZE: usize = 256;
 const EPOCHS: usize = 10;
+
+const MIN_SCORE_RATE: f32 = 0.55;
 
 fn train_version_v0(device: &FlexDevice) {
     let t = std::time::Instant::now();
@@ -126,29 +132,63 @@ fn train(
     model
 }
 
-pub fn run(version: usize) {
+pub fn evaluate(candidate: &HexGoModel<Backend>, baseline: &HexGoModel<Backend>) -> bool {
+    let candidate = candidate.valid();
+    let baseline = baseline.valid();
+
+    let result = evaluate_model(
+        || {
+            NeuralMcts::new(
+                BurnNeuralNetwork::from_model(&candidate),
+                NeuralConfig { add_noise: true },
+            )
+        },
+        || {
+            NeuralMcts::new(
+                BurnNeuralNetwork::from_model(&baseline),
+                NeuralConfig { add_noise: true },
+            )
+        },
+        EVALUATE_GAMES,
+        EVALUATE_ITERATIONS,
+    );
+
+    println!("{result}");
+
+    result.score_rate >= MIN_SCORE_RATE
+}
+
+pub fn run(iterations: usize, start_version: usize) {
     let device = &Default::default();
+    let mut version = start_version;
+    if version == 0 {
+        train_version_v0(device);
+    }
 
-    train_version_v0(device);
-
-    for version in 1..=version {
+    for _ in 0..iterations {
         let t = std::time::Instant::now();
 
         println!("v{}: start training...", version);
 
         let model = load_model(version - 1, device);
-
+        let baseline = model.clone();
         let samples = generate_self_play_data(&model);
 
         println!("v{}: generated {} samples", version, samples.len());
 
-        let model = train(model, samples, device);
+        let candidate = train(model, samples, device);
 
-        save_model(version, model);
+        let sucess = evaluate(&candidate, &baseline);
+
+        if sucess {
+            save_model(version, candidate);
+            version += 1;
+        }
 
         println!(
-            "v{}: train finish, time comsumed: {:?}",
+            "v{}: train {}, time comsumed: {:?}",
             version,
+            if sucess { "finished" } else { "failed" },
             t.elapsed()
         );
     }
