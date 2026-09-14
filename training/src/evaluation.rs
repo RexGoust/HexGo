@@ -1,0 +1,298 @@
+use std::fmt;
+
+use hex_go::{
+    ai::search::Search,
+    board_layout::BoardDefinition,
+    game::{
+        Game, GameResult,
+        action::Action::{self, Pass},
+        player::Player,
+    },
+};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+pub struct EvaluationResult {
+    pub games: u32,
+    pub wins: u32,
+    pub losses: u32,
+    pub draws: u32,
+    pub win_rate: f32,
+    pub score_rate: f32,
+}
+
+impl fmt::Display for EvaluationResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Game {}/{} wins ({:.2}%), {} losses, {} draws, score rate: {:.2}%",
+            self.wins,
+            self.games,
+            self.win_rate * 100.0,
+            self.losses,
+            self.draws,
+            self.score_rate * 100.0,
+        )
+    }
+}
+const MAX_ACTIONS: usize = 1000;
+
+fn play_model(
+    black: &mut dyn Search,
+    white: &mut dyn Search,
+    game: &mut Game,
+    iterations: usize,
+) -> GameResult {
+    let mut actions = 0usize;
+
+    while game.result().is_none() {
+        let player = game.current_player();
+
+        let action = match player {
+            Player::Black => black.choose_action(game, iterations),
+            Player::White => white.choose_action(game, iterations),
+        }
+        .unwrap_or(Pass);
+
+        match action {
+            Action::Move(vertex) => {
+                game.play_move(vertex).unwrap();
+            }
+            Action::Pass => {
+                game.pass_turn().unwrap();
+            }
+        }
+        actions += 1;
+        if actions >= MAX_ACTIONS {
+            println!("action over {} times, quitting game...", MAX_ACTIONS);
+            let _ = game.pass_turn();
+            let _ = game.pass_turn();
+            break;
+        }
+    }
+
+    game.result().unwrap()
+}
+
+fn create_game() -> Game {
+    let board = BoardDefinition::compact().graph().clone();
+
+    Game::new(board)
+}
+
+fn calculate_result(results: impl IntoIterator<Item = (usize, GameResult)>) -> EvaluationResult {
+    let results = results.into_iter();
+
+    let mut games = 0;
+    let mut wins = 0;
+    let mut losses = 0;
+    let mut draws = 0;
+
+    for (index, result) in results {
+        games += 1;
+
+        let candidate_black = index % 2 == 0;
+
+        match result {
+            GameResult::WinByScore { winner, .. } | GameResult::WinByResignation { winner } => {
+                let candidate_won = (candidate_black && winner == Player::Black)
+                    || (!candidate_black && winner == Player::White);
+
+                if candidate_won {
+                    wins += 1;
+                } else {
+                    losses += 1;
+                }
+            }
+            GameResult::Draw => {
+                draws += 1;
+            }
+        }
+    }
+
+    let win_rate = if games == 0 {
+        0.0
+    } else {
+        wins as f32 / games as f32
+    };
+
+    let score_rate = if games == 0 {
+        0.0
+    } else {
+        (wins as f32 + draws as f32 * 0.5) / games as f32
+    };
+
+    EvaluationResult {
+        games,
+        wins,
+        losses,
+        draws,
+        win_rate,
+        score_rate,
+    }
+}
+
+pub fn evaluate_model<S, FC, FB>(
+    candidate: FC,
+    baseline: FB,
+    games: usize,
+    iterations: usize,
+) -> EvaluationResult
+where
+    S: Search,
+    FC: Fn() -> S + Sync,
+    FB: Fn() -> S + Sync,
+{
+    let results: Vec<(usize, GameResult)> = (0..games)
+        .into_par_iter()
+        .map(|index| {
+            let mut white = if index % 2 == 0 {
+                candidate()
+            } else {
+                baseline()
+            };
+
+            let mut black = if index % 2 == 0 {
+                baseline()
+            } else {
+                candidate()
+            };
+
+            let mut game = create_game();
+
+            let result = play_model(&mut black, &mut white, &mut game, iterations);
+
+            (index, result)
+        })
+        .collect();
+    calculate_result(results)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn calculate_result_counts_candidate_wins() {
+        let results = vec![
+            (
+                0,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+            (
+                1,
+                GameResult::WinByScore {
+                    winner: Player::White,
+                    margin: 1.0,
+                },
+            ),
+        ];
+
+        let result = calculate_result(results);
+
+        assert_eq!(result.games, 2);
+        assert_eq!(result.wins, 2);
+        assert_eq!(result.losses, 0);
+        assert_eq!(result.draws, 0);
+        assert_eq!(result.win_rate, 1.0);
+    }
+
+    #[test]
+    fn calculate_result_counts_baseline_wins() {
+        let results = vec![
+            (
+                0,
+                GameResult::WinByScore {
+                    winner: Player::White,
+                    margin: 1.0,
+                },
+            ),
+            (
+                1,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+        ];
+
+        let result = calculate_result(results);
+
+        assert_eq!(result.games, 2);
+        assert_eq!(result.wins, 0);
+        assert_eq!(result.losses, 2);
+        assert_eq!(result.draws, 0);
+        assert_eq!(result.win_rate, 0.0);
+    }
+
+    #[test]
+    fn calculate_result_counts_mixed_results() {
+        let results = vec![
+            (
+                0,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+            (
+                1,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+            (2, GameResult::Draw),
+            (3, GameResult::Draw),
+        ];
+
+        let result = calculate_result(results);
+
+        assert_eq!(result.games, 4);
+        assert_eq!(result.wins, 1);
+        assert_eq!(result.losses, 1);
+        assert_eq!(result.draws, 2);
+        assert_eq!(result.win_rate, 0.25);
+    }
+
+    #[test]
+    fn candidate_side_alternates_by_index() {
+        let results = vec![
+            (
+                0,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+            (
+                1,
+                GameResult::WinByScore {
+                    winner: Player::White,
+                    margin: 1.0,
+                },
+            ),
+            (
+                2,
+                GameResult::WinByScore {
+                    winner: Player::Black,
+                    margin: 1.0,
+                },
+            ),
+            (
+                3,
+                GameResult::WinByScore {
+                    winner: Player::White,
+                    margin: 1.0,
+                },
+            ),
+        ];
+
+        let result = calculate_result(results);
+
+        assert_eq!(result.wins, 4);
+        assert_eq!(result.losses, 0);
+    }
+}
