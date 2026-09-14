@@ -9,6 +9,7 @@ use hex_go::{
         player::Player,
     },
 };
+use rand::RngExt;
 
 use crate::dataset::TrainingSample;
 use rayon::prelude::*;
@@ -17,6 +18,45 @@ pub struct SelfPlayPosition {
     pub state: Vec<f32>,
     pub policy: Vec<f32>,
     pub player: Player,
+}
+
+fn sample_action_by_temperature(policy: &[(Action, f32)], temperature: f32) -> Action {
+    assert!(!policy.is_empty());
+    assert!(temperature >= 0.0);
+
+    if temperature <= 1e-4 {
+        return policy.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap().0;
+    }
+
+    let max_probability = policy
+        .iter()
+        .map(|(_, probability)| *probability)
+        .fold(0.0_f32, f32::max);
+
+    if max_probability <= 0.0 {
+        return policy.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap().0;
+    }
+
+    let exponent = 1.0 / temperature;
+
+    let weights: Vec<f32> = policy
+        .iter()
+        .map(|(_, probability)| (probability / max_probability).powf(exponent))
+        .collect();
+
+    let total: f32 = weights.iter().sum();
+
+    let mut target = rand::rng().random::<f32>() * total;
+
+    for ((action, _), weight) in policy.iter().zip(&weights) {
+        target -= weight;
+
+        if target <= 0.0 {
+            return *action;
+        }
+    }
+
+    policy.last().unwrap().0
 }
 
 fn policy_to_dense(policy: &[(Action, f32)]) -> Vec<f32> {
@@ -61,7 +101,11 @@ pub fn play_game<S: Search>(
         };
         let policy = policy_to_dense(&search.policy);
 
-        match search.action {
+        let temperature = if actions < 30 { 1.0 } else { 0.0 };
+
+        let action = sample_action_by_temperature(&search.policy, temperature);
+
+        match action {
             Action::Move(vertex) => {
                 moves += 1;
 
@@ -341,5 +385,90 @@ mod tests {
 
         assert_eq!(samples.len(), 2);
         assert!(samples.iter().all(|sample| sample.value == 0.0));
+    }
+
+    #[test]
+    fn temperature_sampling_zero_is_strictly_deterministic() {
+        let action_a = Action::Move(VertexId::new(0));
+        let action_b = Action::Move(VertexId::new(1));
+        let action_c = Action::Move(VertexId::new(2));
+
+        let policy = vec![
+            (action_a, 0.2),
+            (action_b, 0.5), // Highest probability candidate.
+            (action_c, 0.3),
+        ];
+
+        // Zero temperature (and values below the threshold) must deterministically
+        // select the argmax action without stochastic variation across repeated calls.
+        for _ in 0..100 {
+            let chosen = sample_action_by_temperature(&policy, 0.0);
+            assert_eq!(chosen, action_b);
+
+            let chosen_near_zero = sample_action_by_temperature(&policy, 1e-5);
+            assert_eq!(chosen_near_zero, action_b);
+        }
+    }
+
+    #[test]
+    fn temperature_sampling_standard_distribution() {
+        let action_a = Action::Move(VertexId::new(0));
+        let action_b = Action::Move(VertexId::new(1));
+
+        let policy = vec![(action_a, 0.7), (action_b, 0.3)];
+
+        let mut count_a = 0;
+        let mut count_b = 0;
+        let trials = 1000;
+
+        for _ in 0..trials {
+            match sample_action_by_temperature(&policy, 1.0) {
+                a if a == action_a => count_a += 1,
+                b if b == action_b => count_b += 1,
+                _ => panic!("sampled unexpected action"),
+            }
+        }
+
+        // Both candidates must be explored across independent trials.
+        assert!(count_a > 0);
+        assert!(count_b > 0);
+
+        // The empirical distribution should reflect the 70%/30% ratio within normal variance.
+        assert!(count_a > count_b);
+        assert!((600..=800).contains(&count_a));
+    }
+
+    #[test]
+    fn temperature_sampling_low_temp_sharpens_distribution() {
+        let action_a = Action::Move(VertexId::new(0));
+        let action_b = Action::Move(VertexId::new(1));
+
+        let policy = vec![(action_a, 0.6), (action_b, 0.4)];
+
+        // At low temperature (tau = 0.2, exponent = 5.0), selection probability
+        // heavily concentrates on the dominant candidate (~88% expected).
+        let mut count_a = 0;
+        let trials = 500;
+
+        for _ in 0..trials {
+            if sample_action_by_temperature(&policy, 0.2) == action_a {
+                count_a += 1;
+            }
+        }
+
+        assert!(
+            count_a > 400,
+            "low temperature must heavily favor the dominant candidate"
+        );
+    }
+
+    #[test]
+    fn temperature_sampling_handles_single_action() {
+        let only_action = Action::Pass;
+        let policy = vec![(only_action, 1.0)];
+
+        assert_eq!(sample_action_by_temperature(&policy, 0.0), only_action);
+        assert_eq!(sample_action_by_temperature(&policy, 1.0), only_action);
+        assert_eq!(sample_action_by_temperature(&policy, 2.0), only_action);
     }
 }
