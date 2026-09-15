@@ -7,5 +7,5 @@ mod self_play;
 mod tensor;
 mod train;
 fn main() {
-    pipeline::run(1, 1);
+    pipeline::run(1, 50);
 }
