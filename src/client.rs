@@ -107,6 +107,7 @@ fn add_sync_system(app: &mut App) {
     app.add_systems(
         Update,
         (
+            sync::sync_game_mode,
             sync::sync_stones,
             sync::sync_preview,
             sync::sync_focus_marker,
@@ -165,7 +166,7 @@ enum ModalKind {
 }
 
 #[derive(Resource, Default)]
-struct UiState {
+pub(crate) struct UiState {
     hovered: Option<VertexId>,
     focused_vertex: Option<VertexId>,
     focus: FocusTarget,
@@ -178,7 +179,7 @@ pub fn setup_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
+pub(crate) fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
     if ui.modal.is_some() {
         return false;
     }

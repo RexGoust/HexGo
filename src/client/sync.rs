@@ -1,9 +1,9 @@
-use super::ui::{CurrentPlayerText, PassCountText, ResultPanel, ResultText};
+use super::ui::{CurrentPlayerText, GameModeText, PassCountText, ResultPanel, ResultText};
 use crate::{
     client::{
         FocusTarget, ModalKind, SessionResource, UiState,
         board::{Marker, PreviewStone, Stone},
-        layout,
+        can_do_game_action, layout,
         materials::StoneMaterials,
         ui::{ERROR, FeedbackText, MUTED_TEXT, ModalOverlay, ModalText, RulesOverlay, RulesScroll},
     },
@@ -12,9 +12,51 @@ use crate::{
         player::Player,
         state::{GameStatus, VertexState},
     },
-    session::GameSession,
+    session::{GameMode, GameSession},
 };
 use bevy::{prelude::*, window::PrimaryWindow};
+
+pub(super) fn player_role_tag(player: Player, mode: GameMode) -> &'static str {
+    match mode {
+        GameMode::Local => "",
+        GameMode::AI(my_player) => {
+            if player == my_player {
+                "（己方）"
+            } else {
+                "（AI）"
+            }
+        }
+        GameMode::Network(my_player) => {
+            if player == my_player {
+                "（己方）"
+            } else {
+                "（对方）"
+            }
+        }
+        GameMode::SelfPlay => "（AI）",
+    }
+}
+
+pub(super) fn game_mode_description(mode: GameMode) -> &'static str {
+    match mode {
+        GameMode::Local => "本地双人对局",
+        GameMode::AI(Player::Black) => "人机对战（己方执黑）",
+        GameMode::AI(Player::White) => "人机对战（己方执白）",
+        GameMode::Network(Player::Black) => "网络对战（己方执黑）",
+        GameMode::Network(Player::White) => "网络对战（己方执白）",
+        GameMode::SelfPlay => "AI 对弈模式",
+    }
+}
+
+pub(super) fn sync_game_mode(
+    session: Res<SessionResource>,
+    mut mode_text: Single<&mut Text, With<GameModeText>>,
+) {
+    let value = game_mode_description(session.0.mode());
+    if mode_text.0 != value {
+        mode_text.0 = value.into();
+    }
+}
 
 pub(super) fn sync_stones(
     session: Res<SessionResource>,
@@ -54,6 +96,7 @@ pub(super) fn sync_preview(
         .flatten());
     if ui.modal.is_none()
         && session.0.status() == GameStatus::Playing
+        && can_do_game_action(&session.0, &ui)
         && let Some(vertex) = preview_vertex
         && session.0.vertex_state(vertex) == Some(VertexState::Empty)
     {
@@ -116,7 +159,11 @@ pub(super) fn sync_current_player(
     mut current_player: Single<&mut Text, With<CurrentPlayerText>>,
 ) {
     let value = match session.0.status() {
-        GameStatus::Playing => format!("当前执子：{}", player_name(session.0.current_player())),
+        GameStatus::Playing => {
+            let current = session.0.current_player();
+            let role = player_role_tag(current, session.0.mode());
+            format!("当前执子：{}{}", player_name(current), role)
+        }
         GameStatus::Finished(_) => "对局已结束".into(),
     };
     if current_player.0 != value {
@@ -157,15 +204,19 @@ pub(super) fn sync_result(
 }
 
 fn compact_result_summary(session: &GameSession, result: GameResult) -> String {
+    let mode = session.mode();
     match result {
         GameResult::WinByResignation { winner } => {
-            format!("对局结果：{}因对方认输获胜", player_name(winner))
+            let role = player_role_tag(winner, mode);
+            format!("对局结果：{}{}因对方认输获胜", player_name(winner), role)
         }
         GameResult::WinByScore { winner, margin } => {
             let score = session.score_breakdown();
+            let winner_role = player_role_tag(winner, mode);
             format!(
-                "对局结果：{}胜 {:.1} 目\n黑方 {:.1}（棋 {} / 地 {}）\n白方 {:.1}（棋 {} / 地 {} / 贴 {:.1}）",
+                "对局结果：{}{}胜 {:.1} 目\n黑方 {:.1}（棋 {} / 地 {}）\n白方 {:.1}（棋 {} / 地 {} / 贴 {:.1}）",
                 player_name(winner),
+                winner_role,
                 margin,
                 score.black_total,
                 score.black_stones,
@@ -186,12 +237,47 @@ fn compact_result_summary(session: &GameSession, result: GameResult) -> String {
     }
 }
 
+pub(super) fn default_feedback_for_mode(session: &GameSession) -> String {
+    if session.status() != GameStatus::Playing {
+        return "对局已结束".into();
+    }
+    match session.mode() {
+        GameMode::Local => "请选择一个交点落子".into(),
+        GameMode::AI(my_player) => {
+            if session.current_player() == my_player {
+                "轮到己方，请选择交点落子".into()
+            } else {
+                "AI 正在思考中...".into()
+            }
+        }
+        GameMode::Network(my_player) => {
+            if session.current_player() == my_player {
+                "轮到己方，请选择交点落子".into()
+            } else {
+                "等待对方落子...".into()
+            }
+        }
+        GameMode::SelfPlay => "AI 自动对弈中...".into(),
+    }
+}
+
 pub(super) fn sync_feedback(
+    session: Res<SessionResource>,
     ui: Res<UiState>,
     mut feedback: Single<(&mut Text, &mut TextColor), With<FeedbackText>>,
 ) {
-    let value = if ui.feedback.is_empty() {
-        "请选择一个交点落子".into()
+    let is_waiting_opponent = session.0.status() == GameStatus::Playing
+        && !ui.feedback_is_error
+        && ui.modal.is_none()
+        && match session.0.mode() {
+            GameMode::AI(my_player) => session.0.current_player() != my_player,
+            GameMode::Network(my_player) => session.0.current_player() != my_player,
+            GameMode::SelfPlay => true,
+            GameMode::Local => false,
+        };
+
+    let value = if ui.feedback.is_empty() || is_waiting_opponent {
+        default_feedback_for_mode(&session.0)
     } else {
         ui.feedback.clone()
     };
@@ -213,19 +299,27 @@ fn player_name(player: Player) -> &'static str {
 }
 
 fn result_summary(session: &GameSession, result: GameResult) -> String {
+    let mode = session.mode();
     match result {
         GameResult::WinByResignation { winner } => {
-            format!("对局结果\n{}因对方认输获胜", player_name(winner))
+            let role = player_role_tag(winner, mode);
+            format!("对局结果\n{}{}因对方认输获胜", player_name(winner), role)
         }
         GameResult::WinByScore { winner, margin } => {
             let score = session.score_breakdown();
+            let winner_role = player_role_tag(winner, mode);
+            let black_role = player_role_tag(Player::Black, mode);
+            let white_role = player_role_tag(Player::White, mode);
             format!(
-                "对局结果\n{}胜 {:.1} 目\n\n黑方\n棋子：{}\n领地：{}\n总分：{:.1}\n\n白方\n棋子：{}\n领地：{}\n贴目：{:.1}\n总分：{:.1}",
+                "对局结果\n{}{}胜 {:.1} 目\n\n黑方{}\n棋子：{}\n领地：{}\n总分：{:.1}\n\n白方{}\n棋子：{}\n领地：{}\n贴目：{:.1}\n总分：{:.1}",
                 player_name(winner),
+                winner_role,
                 margin,
+                black_role,
                 score.black_stones,
                 score.black_territory,
                 score.black_total,
+                white_role,
                 score.white_stones,
                 score.white_territory,
                 score.komi,
@@ -326,14 +420,157 @@ mod tests {
 
     #[test]
     fn score_result_lines_fit_the_sidebar_card() {
-        let mut session = GameSession::compact(GameMode::Local);
-        session.submit(SessionCommand::Pass).unwrap();
-        session.submit(SessionCommand::Pass).unwrap();
-        let summary = result_summary(&session, session.result().unwrap());
+        let modes = [
+            GameMode::Local,
+            GameMode::AI(Player::Black),
+            GameMode::AI(Player::White),
+            GameMode::SelfPlay,
+        ];
 
-        assert!(summary.lines().all(|line| line.chars().count() <= 14));
+        for mode in modes {
+            let mut session = GameSession::compact(mode);
+            session.submit(SessionCommand::Pass).unwrap();
+            session.submit(SessionCommand::Pass).unwrap();
+            let summary = result_summary(&session, session.result().unwrap());
 
-        let compact_summary = compact_result_summary(&session, session.result().unwrap());
-        assert!(compact_summary.lines().count() <= 3);
+            assert!(
+                summary.lines().all(|line| line.chars().count() <= 14),
+                "Summary line exceeded 14 characters for mode {:?}:\n{}",
+                mode,
+                summary
+            );
+
+            let compact_summary = compact_result_summary(&session, session.result().unwrap());
+            assert!(
+                compact_summary.lines().count() <= 3,
+                "Compact summary exceeded 3 lines for mode {:?}",
+                mode
+            );
+
+            let mut resign_session = GameSession::compact(mode);
+            resign_session.submit(SessionCommand::Resign).unwrap();
+            let resign_summary = result_summary(&resign_session, resign_session.result().unwrap());
+            assert!(
+                resign_summary
+                    .lines()
+                    .all(|line| line.chars().count() <= 14),
+                "Resign summary line exceeded 14 characters for mode {:?}:\n{}",
+                mode,
+                resign_summary
+            );
+            let compact_resign =
+                compact_result_summary(&resign_session, resign_session.result().unwrap());
+            assert!(compact_resign.lines().count() <= 3);
+        }
+    }
+
+    #[test]
+    fn role_tags_and_descriptions_match_each_mode() {
+        assert_eq!(game_mode_description(GameMode::Local), "本地双人对局");
+        assert_eq!(
+            game_mode_description(GameMode::AI(Player::Black)),
+            "人机对战（己方执黑）"
+        );
+        assert_eq!(
+            game_mode_description(GameMode::AI(Player::White)),
+            "人机对战（己方执白）"
+        );
+        assert_eq!(
+            game_mode_description(GameMode::Network(Player::Black)),
+            "网络对战（己方执黑）"
+        );
+        assert_eq!(
+            game_mode_description(GameMode::Network(Player::White)),
+            "网络对战（己方执白）"
+        );
+        assert_eq!(game_mode_description(GameMode::SelfPlay), "AI 对弈模式");
+
+        assert_eq!(player_role_tag(Player::Black, GameMode::Local), "");
+        assert_eq!(player_role_tag(Player::White, GameMode::Local), "");
+
+        assert_eq!(
+            player_role_tag(Player::Black, GameMode::AI(Player::Black)),
+            "（己方）"
+        );
+        assert_eq!(
+            player_role_tag(Player::White, GameMode::AI(Player::Black)),
+            "（AI）"
+        );
+        assert_eq!(
+            player_role_tag(Player::Black, GameMode::AI(Player::White)),
+            "（AI）"
+        );
+        assert_eq!(
+            player_role_tag(Player::White, GameMode::AI(Player::White)),
+            "（己方）"
+        );
+
+        assert_eq!(
+            player_role_tag(Player::Black, GameMode::Network(Player::Black)),
+            "（己方）"
+        );
+        assert_eq!(
+            player_role_tag(Player::White, GameMode::Network(Player::Black)),
+            "（对方）"
+        );
+        assert_eq!(player_role_tag(Player::Black, GameMode::SelfPlay), "（AI）");
+        assert_eq!(player_role_tag(Player::White, GameMode::SelfPlay), "（AI）");
+    }
+
+    #[test]
+    fn default_feedback_reflects_turn_and_mode() {
+        let local = GameSession::compact(GameMode::Local);
+        assert_eq!(default_feedback_for_mode(&local), "请选择一个交点落子");
+
+        let ai_black = GameSession::compact(GameMode::AI(Player::Black));
+        assert_eq!(
+            default_feedback_for_mode(&ai_black),
+            "轮到己方，请选择交点落子"
+        );
+
+        let ai_white = GameSession::compact(GameMode::AI(Player::White));
+        assert_eq!(default_feedback_for_mode(&ai_white), "AI 正在思考中...");
+
+        let self_play = GameSession::compact(GameMode::SelfPlay);
+        assert_eq!(default_feedback_for_mode(&self_play), "AI 自动对弈中...");
+
+        let mut finished = GameSession::compact(GameMode::Local);
+        finished.submit(SessionCommand::Pass).unwrap();
+        finished.submit(SessionCommand::Pass).unwrap();
+        assert_eq!(default_feedback_for_mode(&finished), "对局已结束");
+    }
+
+    #[test]
+    fn sync_current_player_shows_correct_role_indicator() {
+        let mut app = App::new();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
+            Player::Black,
+        ))))
+        .add_systems(Update, sync_current_player);
+
+        app.world_mut().spawn((CurrentPlayerText, Text::new("")));
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<&Text, With<CurrentPlayerText>>();
+        let text = query.single(world).unwrap();
+        assert_eq!(text.0, "当前执子：黑方（己方）");
+    }
+
+    #[test]
+    fn sync_game_mode_updates_mode_text() {
+        let mut app = App::new();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
+            Player::Black,
+        ))))
+        .add_systems(Update, sync_game_mode);
+
+        app.world_mut().spawn((GameModeText, Text::new("")));
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<&Text, With<GameModeText>>();
+        let text = query.single(world).unwrap();
+        assert_eq!(text.0, "人机对战（己方执黑）");
     }
 }
