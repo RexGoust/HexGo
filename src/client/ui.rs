@@ -23,6 +23,9 @@ pub enum ResponsiveElement {
 }
 
 #[derive(Component)]
+pub(super) struct GameModeText;
+
+#[derive(Component)]
 pub(super) struct CurrentPlayerText;
 
 #[derive(Component)]
@@ -146,6 +149,7 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                 text_bundle("HEXGO", font, 31.0, TEXT_COLOR),
             ));
             panel.spawn((
+                GameModeText,
                 ResponsiveElement::DesktopOnly,
                 text_bundle("本地双人对局", font, 16.0, MUTED_TEXT),
             ));

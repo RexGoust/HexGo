@@ -1,6 +1,9 @@
 use crate::{
-    client::{FocusTarget, SessionResource, UiState, input::ButtonAction, ui::ACCENT},
+    client::{
+        FocusTarget, SessionResource, UiState, can_do_game_action, input::ButtonAction, ui::ACCENT,
+    },
     game::state::GameStatus,
+    session::GameMode,
 };
 use bevy::prelude::*;
 
@@ -15,8 +18,13 @@ pub(super) fn style_buttons(
     )>,
 ) {
     for (interaction, action, mut background, mut border) in &mut buttons {
-        let disabled = session.0.status() != GameStatus::Playing
-            && matches!(action, ButtonAction::Pass | ButtonAction::Resign);
+        let disabled = match action {
+            ButtonAction::Pass | ButtonAction::Resign => {
+                session.0.status() != GameStatus::Playing || !can_do_game_action(&session.0, &ui)
+            }
+            ButtonAction::Restart => matches!(session.0.mode(), GameMode::Network(_)),
+            _ => false,
+        };
         let focused = match action {
             ButtonAction::Pass => ui.focus == FocusTarget::Pass,
             ButtonAction::Resign => ui.focus == FocusTarget::Resign,

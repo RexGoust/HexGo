@@ -1,6 +1,6 @@
 [package]
 name = "HexGo"
-version = "0.1.1"
+version = "0.2.0-alpha.1"
 edition = "2024"
 
 [lib]
@@ -41,7 +41,7 @@ bevy = {
 }
 
 [package.metadata.android]
-version-code = 2
+version-code = 3
 
 [profile.release]
 opt-level = "s"
