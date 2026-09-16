@@ -1,3 +1,4 @@
+mod argument;
 mod dataset;
 mod evaluation;
 mod loss;
@@ -6,6 +7,19 @@ mod sampler;
 mod self_play;
 mod tensor;
 mod train;
+use clap::Parser;
+
+use crate::{
+    argument::{Cli, Command},
+    pipeline::{Pipeline, TrainingConfig},
+};
 fn main() {
-    pipeline::run(1, 50);
+    let cli = Cli::parse();
+
+    match cli.command {
+        Command::Train(args) => {
+            let mut pipeline = Pipeline::new(TrainingConfig::from(args));
+            pipeline.run();
+        }
+    }
 }

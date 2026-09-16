@@ -1,5 +1,5 @@
 [package]
-name = "hexgo-training"
+name = "hexgo-train"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,3 +8,5 @@ burn = { version = "0.21", features = ["flex","autodiff"] }
 rayon = "1.11"
 rand = "0.10.2"
 HexGo = { path = ".." }
+clap = { version = "4.6.7", features = ["derive","color"] }
+clap-cargo = "0.19.0"

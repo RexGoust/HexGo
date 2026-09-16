@@ -26,7 +26,7 @@ impl fmt::Display for EvaluationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Game {}/{} wins ({:.2}%), {} losses, {} draws, score rate: {:.2}%",
+            "{}/{} wins ({:.2}%), {} losses, {} draws, score rate: {:.2}%",
             self.wins,
             self.games,
             self.win_rate * 100.0,

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use burn::{
     backend::{Autodiff, Flex, flex::FlexDevice},
@@ -15,6 +15,7 @@ use hex_go::ai::{
 use rand::seq::SliceRandom;
 
 use crate::{
+    argument::TrainArgs,
     dataset::TrainingSample,
     evaluation::evaluate_model,
     self_play::generate_self_play_games,
@@ -22,178 +23,265 @@ use crate::{
 };
 type Backend = Autodiff<Flex>;
 
-const SELF_PLAY_GAMES: usize = 1000;
-const MCTS_ITERATIONS: usize = 800;
-
 const EVALUATE_GAMES: usize = 200;
 const EVALUATE_ITERATIONS: usize = 800;
 
 const TRAIN_RATIO: f32 = 0.9;
-const BATCH_SIZE: usize = 256;
-const EPOCHS: usize = 10;
 
 const MIN_SCORE_RATE: f32 = 0.55;
 
-fn train_version_v0(device: &FlexDevice) {
-    let t = std::time::Instant::now();
+pub struct TrainingConfig {
+    pub games: usize,
 
-    println!("v0: start training...");
-    let mut samples = generate_self_play_games(SELF_PLAY_GAMES, MCTS_ITERATIONS, Mcts::new);
+    pub iterations: usize,
 
-    println!("v0: generated {} samples", samples.len());
+    pub runs: usize,
 
-    // Shuffle before splitting to avoid keeping positions from the same games together.
-    samples.shuffle(&mut rand::rng());
+    pub start_version: usize,
 
-    let model = HexGoModel::<Backend>::new(device);
+    pub epochs: usize,
 
-    let model = train(model, samples, device);
+    pub batch_size: usize,
 
-    save_model(0, model);
-
-    println!("v0: train finish, time comsumed: {:?}", t.elapsed());
+    pub no_skip: bool,
 }
 
-fn load_model(version: usize, device: &FlexDevice) -> HexGoModel<Backend> {
-    let path = format!("checkpoints/v{}/model", version);
-
-    HexGoModel::new(device)
-        .load_file(path, &CompactRecorder::new(), device)
-        .unwrap()
-}
-
-fn save_model(version: usize, model: HexGoModel<Backend>) {
-    fs::create_dir_all(format!("checkpoints/v{}", version))
-        .expect("failed to create checkpoints directory");
-
-    model
-        .save_file(
-            format!("checkpoints/v{}/model", version),
-            &CompactRecorder::new(),
-        )
-        .expect("failed to save model");
-
-    println!("v{0}: model saved to checkpoints/v{0}/model", version);
-}
-
-fn generate_self_play_data(model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
-    let model = model.valid();
-
-    let mut samples = generate_self_play_games(SELF_PLAY_GAMES, MCTS_ITERATIONS, || {
-        NeuralMcts::new(
-            BurnNeuralNetwork::from_model(&model),
-            NeuralConfig { add_noise: true },
-        )
-    });
-
-    samples.shuffle(&mut rand::rng());
-
-    samples
-}
-
-fn split_samples(mut samples: Vec<TrainingSample>) -> (Vec<TrainingSample>, Vec<TrainingSample>) {
-    let split_index = (samples.len() as f32 * TRAIN_RATIO) as usize;
-
-    let validation_samples = samples.split_off(split_index);
-
-    (samples, validation_samples)
-}
-
-fn train(
-    mut model: HexGoModel<Backend>,
-    samples: Vec<TrainingSample>,
-    device: &FlexDevice,
-) -> HexGoModel<Backend> {
-    let (mut train_samples, validation_samples) = split_samples(samples);
-
-    println!(
-        "train={}, validation={}",
-        train_samples.len(),
-        validation_samples.len()
-    );
-
-    let mut optimizer = AdamConfig::new().init();
-
-    for epoch in 0..EPOCHS {
-        train_samples.shuffle(&mut rand::rng());
-        for (batch_index, batch) in train_samples.chunks(BATCH_SIZE).enumerate() {
-            let (new_model, loss) = train_on_samples(model, &mut optimizer, batch, device, 1e-3);
-
-            model = new_model;
-
-            println!("epoch={epoch}, batch={batch_index}, loss={loss}");
+impl From<TrainArgs> for TrainingConfig {
+    fn from(args: TrainArgs) -> Self {
+        Self {
+            games: args.games as usize,
+            iterations: args.iterations as usize,
+            runs: args.runs as usize,
+            start_version: args.start_version,
+            epochs: args.epochs,
+            batch_size: args.batch_size,
+            no_skip: args.no_skip,
         }
-
-        let validation_loss = validation_step(&model, &validation_samples, device);
-
-        println!("epoch={epoch}, validation_loss={validation_loss}");
     }
-
-    model
 }
 
-pub fn evaluate(candidate: &HexGoModel<Backend>, baseline: &HexGoModel<Backend>) -> bool {
-    let candidate = candidate.valid();
-    let baseline = baseline.valid();
-
-    let result = evaluate_model(
-        || {
-            NeuralMcts::new(
-                BurnNeuralNetwork::from_model(&candidate),
-                NeuralConfig::default(),
-            )
-        },
-        || {
-            NeuralMcts::new(
-                BurnNeuralNetwork::from_model(&baseline),
-                NeuralConfig::default(),
-            )
-        },
-        EVALUATE_GAMES,
-        EVALUATE_ITERATIONS,
-    );
-
-    println!("{result}");
-
-    result.score_rate >= MIN_SCORE_RATE
+pub struct Pipeline {
+    config: TrainingConfig,
+    current_version: usize,
 }
 
-pub fn run(iterations: usize, start_version: usize) {
-    let device = &Default::default();
-    let mut version = start_version;
-    if version == 0 {
-        train_version_v0(device);
+impl Pipeline {
+    pub fn new(config: TrainingConfig) -> Self {
+        Self {
+            current_version: config.start_version,
+            config,
+        }
     }
-
-    for _ in 0..iterations {
+    fn train_version_v0(&self, device: &FlexDevice) {
         let t = std::time::Instant::now();
 
-        println!("v{}: start training...", version);
+        println!("v0: start training...");
+        let mut samples =
+            generate_self_play_games(self.config.games, self.config.iterations, Mcts::new);
 
-        let model = load_model(version - 1, device);
-        let baseline = model.clone();
-        let samples = generate_self_play_data(&model);
+        println!("v0: generated {} samples", samples.len());
 
-        println!("v{}: generated {} samples", version, samples.len());
+        // Shuffle before splitting to avoid keeping positions from the same games together.
+        samples.shuffle(&mut rand::rng());
 
-        let candidate = train(model, samples, device);
+        let model = HexGoModel::<Backend>::new(device);
 
-        let sucess = evaluate(&candidate, &baseline);
+        let model = self.train(model, samples, device);
 
-        if sucess {
-            save_model(version, candidate);
+        Self::save_model(0, model);
+
+        println!("v0: train finished, time consumed: {:?}", t.elapsed());
+    }
+
+    fn load_model(version: usize, device: &FlexDevice) -> HexGoModel<Backend> {
+        let path = format!("checkpoints/v{}/model", version);
+
+        HexGoModel::new(device)
+            .load_file(&path, &CompactRecorder::new(), device)
+            .unwrap_or_else(|_| panic!("failed to load checkpoint from {path}"))
+    }
+
+    fn save_model(version: usize, model: HexGoModel<Backend>) {
+        fs::create_dir_all(format!("checkpoints/v{}", version))
+            .expect("failed to create checkpoints directory");
+
+        model
+            .save_file(
+                format!("checkpoints/v{}/model", version),
+                &CompactRecorder::new(),
+            )
+            .expect("failed to save model");
+
+        println!("v{0}: model saved to checkpoints/v{0}/model", version);
+    }
+
+    fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
+        let model = model.valid();
+
+        let mut samples =
+            generate_self_play_games(self.config.games, self.config.iterations, || {
+                NeuralMcts::new(
+                    BurnNeuralNetwork::from_model(&model),
+                    NeuralConfig { add_noise: true },
+                )
+            });
+
+        samples.shuffle(&mut rand::rng());
+
+        samples
+    }
+
+    fn split_samples(
+        mut samples: Vec<TrainingSample>,
+    ) -> (Vec<TrainingSample>, Vec<TrainingSample>) {
+        let split_index = (samples.len() as f32 * TRAIN_RATIO) as usize;
+
+        let validation_samples = samples.split_off(split_index);
+
+        (samples, validation_samples)
+    }
+
+    fn train(
+        &self,
+        mut model: HexGoModel<Backend>,
+        samples: Vec<TrainingSample>,
+        device: &FlexDevice,
+    ) -> HexGoModel<Backend> {
+        let (mut train_samples, validation_samples) = Self::split_samples(samples);
+
+        println!(
+            "train={}, validation={}",
+            train_samples.len(),
+            validation_samples.len()
+        );
+
+        let mut optimizer = AdamConfig::new().init();
+
+        for epoch in 0..self.config.epochs {
+            train_samples.shuffle(&mut rand::rng());
+            for (batch_index, batch) in train_samples.chunks(self.config.batch_size).enumerate() {
+                let (new_model, loss) =
+                    train_on_samples(model, &mut optimizer, batch, device, 1e-3);
+
+                model = new_model;
+
+                println!("epoch={epoch}, batch={batch_index}, loss={loss}");
+            }
+
+            let validation_loss = validation_step(&model, &validation_samples, device);
+
+            println!("epoch={epoch}, validation_loss={validation_loss}");
+        }
+
+        model
+    }
+
+    pub fn evaluate(
+        &self,
+        candidate: &HexGoModel<Backend>,
+        baseline: &HexGoModel<Backend>,
+    ) -> bool {
+        let candidate = candidate.valid();
+        let baseline = baseline.valid();
+
+        let result = evaluate_model(
+            || {
+                NeuralMcts::new(
+                    BurnNeuralNetwork::from_model(&candidate),
+                    NeuralConfig::default(),
+                )
+            },
+            || {
+                NeuralMcts::new(
+                    BurnNeuralNetwork::from_model(&baseline),
+                    NeuralConfig::default(),
+                )
+            },
+            EVALUATE_GAMES,
+            EVALUATE_ITERATIONS,
+        );
+
+        println!("v{} evaluate result: {}", self.current_version, result);
+
+        result.score_rate >= MIN_SCORE_RATE
+    }
+
+    fn should_skip_version(&self, version: usize) -> bool {
+        if self.config.no_skip {
+            return false;
+        }
+        let path_str = format!("checkpoints/v{}/model.mpk", version);
+        let path = Path::new(&path_str);
+
+        match path.try_exists() {
+            Ok(true) => {
+                println!(
+                    "checkpoint for v{} already exists, skipping (use --no-skip to override)",
+                    version
+                );
+                true
+            }
+            Ok(false) => false,
+
+            Err(e) => {
+                eprintln!("failed to check checkpoint for v{}: {}", version, e);
+                panic!();
+            }
+        }
+    }
+
+    pub fn run(&mut self) {
+        let device = &Default::default();
+        if self.current_version == 0 {
+            if self.should_skip_version(0) {
+                self.current_version = 1;
+            } else {
+                self.train_version_v0(device);
+                self.current_version = 1;
+            }
+        }
+        let mut trained = 0;
+        while trained < self.config.runs {
+            if self.should_skip_version(self.current_version) {
+                self.current_version += 1;
+                continue;
+            }
+
+            let t = std::time::Instant::now();
+
+            println!("v{}: start training...", self.current_version);
+
+            let model = Self::load_model(self.current_version - 1, device);
+            let baseline = model.clone();
+            let samples = self.generate_self_play_data(&model);
+
             println!(
-                "v{}: train finished, time comsumed: {:?}",
-                version,
-                t.elapsed()
+                "v{}: generated {} samples",
+                self.current_version,
+                samples.len()
             );
-            version += 1;
-        } else {
-            println!(
-                "v{}: train failed, time comsumed: {:?}",
-                version,
-                t.elapsed()
-            );
+
+            let candidate = self.train(model, samples, device);
+
+            let success = self.evaluate(&candidate, &baseline);
+
+            if success {
+                Self::save_model(self.current_version, candidate);
+                println!(
+                    "v{}: train finished, time consumed: {:?}",
+                    self.current_version,
+                    t.elapsed()
+                );
+                self.current_version += 1;
+            } else {
+                println!(
+                    "v{}: train failed, time consumed: {:?}",
+                    self.current_version,
+                    t.elapsed()
+                );
+            }
+
+            trained += 1;
         }
     }
 }
