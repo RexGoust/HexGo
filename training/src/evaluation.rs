@@ -1,7 +1,14 @@
 use std::fmt;
 
+use burn::module::AutodiffModule;
 use hex_go::{
-    ai::search::Search,
+    ai::{
+        backend::default_device,
+        burn_neural_network::BurnNeuralNetwork,
+        model::HexGoModel,
+        neural_mcts::{NeuralConfig, NeuralMcts},
+        search::Search,
+    },
     board_layout::BoardDefinition,
     game::{
         Game, GameResult,
@@ -11,7 +18,9 @@ use hex_go::{
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::sampler::sample_action_by_temperature;
+use crate::{argument::EvaluateArgs, sampler::sample_action_by_temperature, store::load_model};
+
+use hex_go::ai::backend::Backend;
 
 pub struct EvaluationResult {
     pub games: u32,
@@ -37,6 +46,74 @@ impl fmt::Display for EvaluationResult {
     }
 }
 const MAX_ACTIONS: usize = 1000;
+
+pub struct EvaluationConfig {
+    pub candidate: String,
+
+    pub baseline: String,
+
+    pub games: usize,
+
+    pub iterations: usize,
+}
+
+impl From<EvaluateArgs> for EvaluationConfig {
+    fn from(args: EvaluateArgs) -> Self {
+        Self {
+            candidate: args.candidate,
+            baseline: args.baseline,
+            games: args.games as usize,
+            iterations: args.iterations as usize,
+        }
+    }
+}
+
+pub fn create_evaluate(config: EvaluationConfig) {
+    println!("starting evaluate");
+
+    println!(
+        "candidate: {}, baseline: {}",
+        config.candidate, config.baseline
+    );
+
+    let device = default_device();
+    let candidate = load_model(config.candidate, &device);
+    let baseline = load_model(config.baseline, &device);
+
+    start_evaluate(
+        &candidate.valid(),
+        &baseline.valid(),
+        config.games,
+        config.iterations,
+    );
+}
+
+pub fn start_evaluate(
+    candidate: &HexGoModel<Backend>,
+    baseline: &HexGoModel<Backend>,
+    games: usize,
+    iterations: usize,
+) -> EvaluationResult {
+    let result = evaluate_model(
+        || {
+            NeuralMcts::new(
+                BurnNeuralNetwork::from_model(candidate),
+                NeuralConfig::default(),
+            )
+        },
+        || {
+            NeuralMcts::new(
+                BurnNeuralNetwork::from_model(baseline),
+                NeuralConfig::default(),
+            )
+        },
+        games,
+        iterations,
+    );
+
+    println!("evaluate result: {}", result);
+    result
+}
 
 fn play_model(
     black: &mut dyn Search,
@@ -140,7 +217,7 @@ fn calculate_result(results: impl IntoIterator<Item = (usize, GameResult)>) -> E
     }
 }
 
-pub fn evaluate_model<S, FC, FB>(
+fn evaluate_model<S, FC, FB>(
     candidate: FC,
     baseline: FB,
     games: usize,

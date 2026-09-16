@@ -11,6 +11,10 @@ pub struct Cli {
 pub enum Command {
     /// Train the model through self-play and evaluation pipeline
     Train(TrainArgs),
+
+    /// Evaluate the model
+    #[command(alias = "eval")]
+    Evaluate(EvaluateArgs),
 }
 
 #[derive(Args)]
@@ -42,4 +46,23 @@ pub struct TrainArgs {
     /// Retrain and overwrite the checkpoint even if it already exists
     #[arg(long)]
     pub no_skip: bool,
+}
+
+#[derive(Args)]
+pub struct EvaluateArgs {
+    #[arg(short, long)]
+    /// The candidate model to evaluate, such as a model name or checkpoint path.
+    pub candidate: String,
+
+    /// The baseline model to compare against, such as a model name or checkpoint path.
+    #[arg(short, long)]
+    pub baseline: String,
+
+    /// Number of self-play games
+    #[arg(short, long, default_value_t = 200)]
+    pub games: u32,
+
+    /// Number of MCTS iterations
+    #[arg(short, long, default_value_t = 800)]
+    pub iterations: u32,
 }
