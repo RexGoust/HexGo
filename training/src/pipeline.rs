@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use burn::{
     backend::{Autodiff, Flex, flex::FlexDevice},
@@ -42,6 +42,8 @@ pub struct TrainingConfig {
     pub epochs: usize,
 
     pub batch_size: usize,
+
+    pub no_skip: bool,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -53,6 +55,7 @@ impl From<TrainArgs> for TrainingConfig {
             start_version: args.start_version,
             epochs: args.epochs,
             batch_size: args.batch_size,
+            no_skip: args.no_skip,
         }
     }
 }
@@ -203,14 +206,47 @@ impl Pipeline {
         result.score_rate >= MIN_SCORE_RATE
     }
 
+    fn should_skip_version(&self, version: usize) -> bool {
+        if self.config.no_skip {
+            return false;
+        }
+        let path_str = format!("checkpoints/v{}/model.mpk", version);
+        let path = Path::new(&path_str);
+
+        match path.try_exists() {
+            Ok(true) => {
+                println!(
+                    "checkpoint for v{} already exists, skipping (use --no-skip to override)",
+                    version
+                );
+                true
+            }
+            Ok(false) => false,
+
+            Err(e) => {
+                eprintln!("failed to check checkpoint for v{}: {}", version, e);
+                panic!();
+            }
+        }
+    }
+
     pub fn run(&mut self) {
         let device = &Default::default();
         if self.current_version == 0 {
-            self.train_version_v0(device);
-            self.current_version += 1;
+            if self.should_skip_version(0) {
+                self.current_version = 1;
+            } else {
+                self.train_version_v0(device);
+                self.current_version = 1;
+            }
         }
+        let mut trained = 0;
+        while trained < self.config.runs {
+            if self.should_skip_version(self.current_version) {
+                self.current_version += 1;
+                continue;
+            }
 
-        for _ in 0..self.config.runs {
             let t = std::time::Instant::now();
 
             println!("v{}: start training...", self.current_version);
@@ -244,6 +280,8 @@ impl Pipeline {
                     t.elapsed()
                 );
             }
+
+            trained += 1;
         }
     }
 }

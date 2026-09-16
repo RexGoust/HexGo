@@ -9,6 +9,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Train the model through self-play and evaluation pipeline
     Train(TrainArgs),
 }
 
@@ -23,7 +24,7 @@ pub struct TrainArgs {
     pub iterations: u32,
 
     /// Number of times to run the pipeline
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = 1)]
     pub runs: u32,
 
     /// Model version to start training from
@@ -37,4 +38,8 @@ pub struct TrainArgs {
     /// Number of samples per training batch
     #[arg(long, default_value_t = 256)]
     pub batch_size: usize,
+
+    /// Retrain and overwrite the checkpoint even if it already exists
+    #[arg(long)]
+    pub no_skip: bool,
 }
