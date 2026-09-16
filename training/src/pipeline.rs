@@ -1,11 +1,6 @@
-use std::{fs, path::Path};
+use std::path::Path;
 
-use burn::{
-    backend::Autodiff,
-    module::{AutodiffModule, Module},
-    optim::AdamConfig,
-    record::CompactRecorder,
-};
+use burn::{backend::Autodiff, module::AutodiffModule, optim::AdamConfig};
 use hex_go::ai::{
     backend::default_device,
     burn_neural_network::BurnNeuralNetwork,
@@ -18,8 +13,9 @@ use rand::seq::SliceRandom;
 use crate::{
     argument::TrainArgs,
     dataset::TrainingSample,
-    evaluation::evaluate_model,
+    evaluation::{self},
     self_play::generate_self_play_games,
+    store,
     train::{train_on_samples, validation_step},
 };
 use hex_go::ai::backend::{Backend as InnerBackend, Device};
@@ -98,24 +94,12 @@ impl Pipeline {
 
     fn load_model(version: usize, device: &Device) -> HexGoModel<Backend> {
         let path = format!("checkpoints/v{}/model", version);
-
-        HexGoModel::new(device)
-            .load_file(&path, &CompactRecorder::new(), device)
-            .unwrap_or_else(|_| panic!("failed to load checkpoint from {path}"))
+        store::load_model(path, device)
     }
 
     fn save_model(version: usize, model: HexGoModel<Backend>) {
-        fs::create_dir_all(format!("checkpoints/v{}", version))
-            .expect("failed to create checkpoints directory");
-
-        model
-            .save_file(
-                format!("checkpoints/v{}/model", version),
-                &CompactRecorder::new(),
-            )
-            .expect("failed to save model");
-
-        println!("v{0}: model saved to checkpoints/v{0}/model", version);
+        let path = format!("checkpoints/v{}/model", version);
+        store::save_model(path, model);
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -184,27 +168,12 @@ impl Pipeline {
         candidate: &HexGoModel<Backend>,
         baseline: &HexGoModel<Backend>,
     ) -> bool {
-        let candidate = candidate.valid();
-        let baseline = baseline.valid();
-
-        let result = evaluate_model(
-            || {
-                NeuralMcts::new(
-                    BurnNeuralNetwork::from_model(&candidate),
-                    NeuralConfig::default(),
-                )
-            },
-            || {
-                NeuralMcts::new(
-                    BurnNeuralNetwork::from_model(&baseline),
-                    NeuralConfig::default(),
-                )
-            },
+        let result = evaluation::start_evaluate(
+            &candidate.valid(),
+            &baseline.valid(),
             EVALUATE_GAMES,
             EVALUATE_ITERATIONS,
         );
-
-        println!("v{} evaluate result: {}", self.current_version, result);
 
         result.score_rate >= MIN_SCORE_RATE
     }
