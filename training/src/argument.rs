@@ -50,15 +50,15 @@ pub struct TrainArgs {
 
 #[derive(Args)]
 pub struct EvaluateArgs {
+    /// The path to the candidate model checkpoint.
     #[arg(short, long)]
-    /// The candidate model to evaluate, such as a model name or checkpoint path.
     pub candidate: String,
 
-    /// The baseline model to compare against, such as a model name or checkpoint path.
+    /// The path to the baseline model checkpoint.
     #[arg(short, long)]
     pub baseline: String,
 
-    /// Number of self-play games
+    /// Number of evaluation games
     #[arg(short, long, default_value_t = 200)]
     pub games: u32,
 

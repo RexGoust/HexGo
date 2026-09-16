@@ -1,6 +1,5 @@
 use std::fmt;
 
-use burn::module::AutodiffModule;
 use hex_go::{
     ai::{
         backend::default_device,
@@ -77,15 +76,10 @@ pub fn create_evaluate(config: EvaluationConfig) {
     );
 
     let device = default_device();
-    let candidate = load_model(config.candidate, &device);
-    let baseline = load_model(config.baseline, &device);
+    let candidate = load_model::<Backend>(config.candidate, &device);
+    let baseline = load_model::<Backend>(config.baseline, &device);
 
-    start_evaluate(
-        &candidate.valid(),
-        &baseline.valid(),
-        config.games,
-        config.iterations,
-    );
+    start_evaluate(&candidate, &baseline, config.games, config.iterations);
 }
 
 pub fn start_evaluate(
