@@ -1,12 +1,13 @@
 use std::{fs, path::Path};
 
 use burn::{
-    backend::{Autodiff, Flex, flex::FlexDevice},
+    backend::Autodiff,
     module::{AutodiffModule, Module},
     optim::AdamConfig,
     record::CompactRecorder,
 };
 use hex_go::ai::{
+    backend::default_device,
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::HexGoModel,
@@ -21,7 +22,9 @@ use crate::{
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
 };
-type Backend = Autodiff<Flex>;
+use hex_go::ai::backend::{Backend as InnerBackend, Device};
+
+type Backend = Autodiff<InnerBackend>;
 
 const EVALUATE_GAMES: usize = 200;
 const EVALUATE_ITERATIONS: usize = 800;
@@ -72,7 +75,7 @@ impl Pipeline {
             config,
         }
     }
-    fn train_version_v0(&self, device: &FlexDevice) {
+    fn train_version_v0(&self, device: &Device) {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
@@ -93,7 +96,7 @@ impl Pipeline {
         println!("v0: train finished, time consumed: {:?}", t.elapsed());
     }
 
-    fn load_model(version: usize, device: &FlexDevice) -> HexGoModel<Backend> {
+    fn load_model(version: usize, device: &Device) -> HexGoModel<Backend> {
         let path = format!("checkpoints/v{}/model", version);
 
         HexGoModel::new(device)
@@ -145,7 +148,7 @@ impl Pipeline {
         &self,
         mut model: HexGoModel<Backend>,
         samples: Vec<TrainingSample>,
-        device: &FlexDevice,
+        device: &Device,
     ) -> HexGoModel<Backend> {
         let (mut train_samples, validation_samples) = Self::split_samples(samples);
 
@@ -231,7 +234,7 @@ impl Pipeline {
     }
 
     pub fn run(&mut self) {
-        let device = &Default::default();
+        let device = &default_device();
         if self.current_version == 0 {
             if self.should_skip_version(0) {
                 self.current_version = 1;

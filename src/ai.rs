@@ -21,6 +21,7 @@ use crate::{
     worker::Future,
 };
 
+pub mod backend;
 pub mod burn_neural_network;
 pub mod dummy_network;
 pub mod encoder;

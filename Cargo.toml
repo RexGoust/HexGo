@@ -40,6 +40,11 @@ bevy = {
     features = ["android-game-activity"],
 }
 
+[features]
+default = ["cpu"]
+cpu = []
+cuda = ["burn/cuda"]
+
 [package.metadata.android]
 version-code = 3
 
