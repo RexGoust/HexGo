@@ -2,10 +2,14 @@ use std::sync::Arc;
 
 use burn::{
     Tensor,
-    backend::{Flex, flex::FlexDevice},
     module::Module,
     record::{HalfPrecisionSettings, NamedMpkBytesRecorder, Recorder},
     tensor::{TensorData, activation::softmax},
+};
+
+use crate::{
+    ai::backend::default_device,
+    ai::backend::{Backend, Device},
 };
 
 use crate::{
@@ -22,18 +26,17 @@ use crate::{
     },
 };
 
-type Backend = Flex;
-
 const MODEL: &[u8] = include_bytes!("../../assets/hexgo.mpk");
 
 pub struct BurnNeuralNetwork {
     model: HexGoModel<Backend>,
-    device: FlexDevice,
+    device: Device,
 }
 
 impl BurnNeuralNetwork {
+    #[allow(clippy::clone_on_copy)]
     pub fn load() -> Self {
-        let device = &Default::default();
+        let device: &Device = &default_device();
 
         let record = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new()
             .load(MODEL.to_vec(), device)
@@ -43,15 +46,19 @@ impl BurnNeuralNetwork {
 
         Self {
             model,
-            device: *device,
+            // `Device` is a type alias: `FlexDevice` is `Copy`, `CudaDevice` is not.
+            // Using `clone` uniformly keeps both backends working.
+            device: device.clone(),
         }
     }
-
+    #[allow(clippy::clone_on_copy)]
     pub fn from_model(model: &HexGoModel<Backend>) -> Self {
-        let device = &Default::default();
+        let device: &Device = &Default::default();
         Self {
             model: model.clone(),
-            device: *device,
+            // `Device` is a type alias: `FlexDevice` is `Copy`, `CudaDevice` is not.
+            // Using `clone` uniformly keeps both backends working.
+            device: device.clone(),
         }
     }
 }
