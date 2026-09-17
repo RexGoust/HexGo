@@ -5,7 +5,11 @@ use burn::{
     tensor::{ElementConversion, backend::AutodiffBackend},
 };
 
-use crate::{dataset::TrainingSample, loss::total_loss, tensor::samples_to_tensors};
+use crate::{
+    dataset::TrainingSample,
+    loss::{LossValue, pred_entropy, target_entropy, total_loss},
+    tensor::samples_to_tensors,
+};
 use hex_go::ai::model::HexGoModel;
 
 pub fn train_step<B: AutodiffBackend>(
@@ -15,20 +19,38 @@ pub fn train_step<B: AutodiffBackend>(
     target_value: Tensor<B, 2>,
     optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
     learning_rate: f64,
-) -> (HexGoModel<B>, f32) {
+) -> (HexGoModel<B>, LossValue) {
     let output = model.forward(input);
 
-    let loss = total_loss(output.policy, target_policy, output.value, target_value);
+    let loss = total_loss(
+        output.policy.clone(),
+        target_policy.clone(),
+        output.value,
+        target_value,
+    );
 
-    let loss_value = loss.clone().into_scalar().elem::<f32>();
+    let total = loss.total.clone().into_scalar().elem::<f32>();
+    let policy = loss.policy.into_scalar().elem::<f32>();
+    let value = loss.value.into_scalar().elem::<f32>();
 
-    let grads = loss.backward();
+    let grads = loss.total.backward();
 
     let grads = GradientsParams::from_grads(grads, &model);
 
     let model = optimizer.step(learning_rate, model, grads);
+    //let target_entropy = target_entropy(target_policy);
+    //let pred_entropy = pred_entropy(output.policy.detach());
 
-    (model, loss_value)
+    (
+        model,
+        LossValue {
+            policy,
+            value,
+            total,
+            target_entropy: None,
+            pred_entropy: None,
+        },
+    )
 }
 
 pub fn train_on_samples<B: AutodiffBackend>(
@@ -37,7 +59,7 @@ pub fn train_on_samples<B: AutodiffBackend>(
     samples: &[TrainingSample],
     device: &B::Device,
     learning_rate: f64,
-) -> (HexGoModel<B>, f32) {
+) -> (HexGoModel<B>, LossValue) {
     let (state, policy, value) = samples_to_tensors::<B>(samples, device);
 
     train_step(model, state, policy, value, optimizer, learning_rate)
@@ -47,14 +69,30 @@ pub fn validation_step<B: AutodiffBackend>(
     model: &HexGoModel<B>,
     samples: &[TrainingSample],
     device: &B::Device,
-) -> f32 {
+) -> LossValue {
     let (states, policies, values) = samples_to_tensors(samples, device);
 
     let output = model.forward(states);
 
-    let loss = total_loss(output.policy, policies, output.value, values);
+    let loss = total_loss(
+        output.policy.clone(),
+        policies.clone(),
+        output.value,
+        values,
+    );
 
-    loss.into_scalar().elem::<f32>()
+    let total = loss.total.into_scalar().elem::<f32>();
+    let policy = loss.policy.into_scalar().elem::<f32>();
+    let value = loss.value.into_scalar().elem::<f32>();
+    let target_entropy = target_entropy(policies);
+    let pred_entropy = pred_entropy(output.policy.detach());
+    LossValue {
+        policy,
+        value,
+        total,
+        target_entropy: Some(target_entropy),
+        pred_entropy: Some(pred_entropy),
+    }
 }
 
 #[cfg(test)]
@@ -63,7 +101,7 @@ mod tests {
     use crate::{dataset::TrainingSample, tensor::samples_to_tensors};
     use burn::{
         backend::{Autodiff, Flex},
-        optim::AdamConfig,
+        optim::AdamWConfig,
     };
     use hex_go::ai::model::HexGoModel;
     use hex_go::game::action::ACTION_SIZE;
@@ -87,7 +125,7 @@ mod tests {
         let (input, target_policy, target_value) = samples_to_tensors::<Backend>(&samples, &device);
 
         let mut model = HexGoModel::<Backend>::new(&device);
-        let mut optimizer = AdamConfig::new().init();
+        let mut optimizer = AdamWConfig::new().with_weight_decay(1e-4).init();
 
         let mut initial_loss = None;
         let mut final_loss = 0.0;
@@ -108,7 +146,7 @@ mod tests {
                 initial_loss = Some(loss);
             }
 
-            final_loss = loss;
+            final_loss = loss.total;
         }
 
         let initial_loss = initial_loss.unwrap();
@@ -117,7 +155,7 @@ mod tests {
         println!("final loss:   {final_loss}");
 
         assert!(
-            final_loss < initial_loss,
+            final_loss < initial_loss.total,
             "loss did not decrease: initial={initial_loss}, final={final_loss}"
         );
     }
@@ -159,7 +197,7 @@ mod tests {
         let loss = validation_step(&model, &samples, &device);
 
         assert!(
-            loss.is_finite(),
+            loss.total.is_finite(),
             "validation loss must be finite, got {loss:?}"
         );
     }
@@ -172,7 +210,7 @@ mod tests {
 
         let loss = validation_step(&model, &samples, &device);
 
-        assert!(loss.is_finite());
+        assert!(loss.total.is_finite());
     }
 
     #[test]
