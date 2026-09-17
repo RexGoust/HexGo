@@ -6,7 +6,7 @@ use hex_go::ai::{
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
-        HexGoModel, ModelConfig,
+        HexGoModel, MLPModel, MLPModelConfig, ModelConfig,
         store::{self, StoreType},
     },
     neural_mcts::{NeuralConfig, NeuralMcts},
@@ -17,6 +17,7 @@ use crate::{
     argument::TrainArgs,
     dataset::{self, TrainingSample},
     evaluation::{self},
+    model_type::ModelType,
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
 };
@@ -31,7 +32,7 @@ const TRAIN_RATIO: f32 = 0.9;
 
 const MIN_SCORE_RATE: f32 = 0.55;
 
-const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
+const CURRENT_TRAIN_MODEL_CONFIG: MLPModelConfig = MLPModelConfig { hidden_size: 256 };
 
 const RECENT_GENERATIONS: usize = 4;
 const CURRENT_VERSION_SAMPLE_RATIO: f64 = 0.7;
@@ -54,6 +55,8 @@ pub struct TrainingConfig {
     pub store_type: StoreType,
 
     pub force_save: bool,
+
+    pub model_type: ModelType,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -68,6 +71,7 @@ impl From<TrainArgs> for TrainingConfig {
             no_skip: args.no_skip,
             store_type: args.store_type,
             force_save: args.force_save,
+            model_type: args.model_type,
         }
     }
 }
@@ -96,7 +100,11 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
-        let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
+        let model = match self.config.model_type {
+            ModelType::Mlp => {
+                HexGoModel::Mlp(MLPModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+            }
+        };
 
         let model = self.train(model, samples, device);
 
@@ -350,10 +358,14 @@ impl Pipeline {
 
             samples.shuffle(&mut rand::rng());
 
-            let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
-                model
-            } else {
-                HexGoModel::new(CURRENT_TRAIN_MODEL_CONFIG, device)
+            let model = match self.config.model_type {
+                ModelType::Mlp => {
+                    if model.config() == ModelConfig::Mlp(CURRENT_TRAIN_MODEL_CONFIG) {
+                        model
+                    } else {
+                        HexGoModel::Mlp(MLPModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                    }
+                }
             };
 
             let candidate = self.train(model, samples, device);

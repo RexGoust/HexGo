@@ -103,7 +103,7 @@ mod tests {
         backend::{Autodiff, Flex},
         optim::AdamWConfig,
     };
-    use hex_go::ai::model::{HexGoModel, ModelConfig};
+    use hex_go::ai::model::{MLPModel, MLPModelConfig};
     use hex_go::game::action::ACTION_SIZE;
 
     type Backend = Autodiff<Flex>;
@@ -124,7 +124,8 @@ mod tests {
 
         let (input, target_policy, target_value) = samples_to_tensors::<Backend>(&samples, &device);
 
-        let mut model = HexGoModel::<Backend>::new(ModelConfig::default(), &device);
+        let mut model =
+            HexGoModel::Mlp(MLPModel::<Backend>::new(MLPModelConfig::default(), &device));
         let mut optimizer = AdamWConfig::new().with_weight_decay(1e-4).init();
 
         let mut initial_loss = None;
@@ -190,7 +191,10 @@ mod tests {
     #[test]
     fn validation_step_returns_finite_loss() {
         let device = Default::default();
-        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
+        let model = HexGoModel::Mlp(MLPModel::<TestBackend>::new(
+            MLPModelConfig::default(),
+            &device,
+        ));
 
         let samples = test_samples();
 
@@ -205,7 +209,10 @@ mod tests {
     #[test]
     fn validation_step_does_not_require_optimizer() {
         let device = Default::default();
-        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
+        let model = HexGoModel::Mlp(MLPModel::<TestBackend>::new(
+            MLPModelConfig::default(),
+            &device,
+        ));
         let samples = test_samples();
 
         let loss = validation_step(&model, &samples, &device);
@@ -225,9 +232,9 @@ mod tests {
 
         let device = Default::default();
 
-        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
+        let model = MLPModel::<TestBackend>::new(MLPModelConfig::default(), &device);
 
-        let inference_model: HexGoModel<InferenceBackend> = model.valid();
+        let inference_model: MLPModel<InferenceBackend> = model.valid();
 
         let path = std::env::temp_dir().join("hexgo-test-model");
 
@@ -235,7 +242,7 @@ mod tests {
             .save_file(&path, &CompactRecorder::new())
             .expect("failed to save model");
 
-        let _loaded_model = HexGoModel::<InferenceBackend>::new(ModelConfig::default(), &device)
+        let _loaded_model = MLPModel::<InferenceBackend>::new(MLPModelConfig::default(), &device)
             .load_file(&path, &CompactRecorder::new(), &device)
             .expect("failed to load model");
 

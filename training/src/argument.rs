@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use hex_go::ai::model::store::StoreType;
+
+use crate::model_type::ModelType;
 #[derive(Parser)]
 #[command(styles = clap_cargo::style::CLAP_STYLING)]
 #[command(name = "hexgo-train", version, about = "HexGo AI tools")]
@@ -61,6 +63,10 @@ pub struct TrainArgs {
 
     #[arg(long)]
     pub force_save: bool,
+
+    /// Model storage format to use for saving checkpoints
+    #[arg(long, value_enum, default_value_t = ModelType::Mlp)]
+    pub model_type: ModelType,
 }
 
 #[derive(Args)]

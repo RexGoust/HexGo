@@ -4,8 +4,9 @@ use bevy::prelude::*;
 
 use crate::{
     ai::{
-        self, AiState, NeuralNetworkResource, burn_neural_network::BurnNeuralNetwork,
-        model::ModelConfig,
+        self, AiState, NeuralNetworkResource,
+        burn_neural_network::BurnNeuralNetwork,
+        model::{MLPModelConfig, ModelConfig},
     },
     game::{board::VertexId, player::Player::Black, state::GameStatus},
     session::{GameMode, GameSession, SessionCommand, SessionError},
@@ -40,7 +41,9 @@ impl Plugin for ClientPlugin {
             .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
             .insert_resource(NeuralNetworkResource {
-                network: Arc::new(BurnNeuralNetwork::load(ModelConfig::default())),
+                network: Arc::new(BurnNeuralNetwork::load(ModelConfig::Mlp(
+                    MLPModelConfig::default(),
+                ))),
             })
             .init_resource::<AiState>()
             .init_resource::<UiState>();

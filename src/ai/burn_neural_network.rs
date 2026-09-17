@@ -9,13 +9,12 @@ use burn::{
 
 use crate::ai::{
     backend::{Backend, Device, default_device},
-    model::ModelConfig,
+    model::{HexGoModel, MLPModel, ModelConfig},
 };
 
 use crate::{
     ai::{
         encoder::{INPUT_SIZE, encode_game},
-        model::HexGoModel,
         neural_network::{Evaluation, NeuralNetwork},
     },
     game::{
@@ -41,9 +40,12 @@ impl BurnNeuralNetwork {
         let record = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new()
             .load(MODEL.to_vec(), device)
             .expect("failed to load model");
-
-        let model = HexGoModel::<Backend>::new(config, device).load_record(record);
-
+        let model = match config {
+            ModelConfig::Mlp(cfg) => {
+                let mlp = MLPModel::<Backend>::new(cfg, device).load_record(record);
+                HexGoModel::Mlp(mlp)
+            }
+        };
         Self {
             model,
             // `Device` is a type alias: `FlexDevice` is `Copy`, `CudaDevice` is not.
