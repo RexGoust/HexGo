@@ -55,6 +55,9 @@ pub struct TrainArgs {
     /// Model storage format to use for saving checkpoints
     #[arg(long, value_enum, default_value_t = StoreType::BPK)]
     pub store_type: StoreType,
+
+    #[arg(long)]
+    pub force_save: bool,
 }
 
 #[derive(Args)]

@@ -49,6 +49,8 @@ pub struct TrainingConfig {
     pub no_skip: bool,
 
     pub store_type: StoreType,
+
+    pub force_save: bool,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -62,6 +64,7 @@ impl From<TrainArgs> for TrainingConfig {
             batch_size: args.batch_size,
             no_skip: args.no_skip,
             store_type: args.store_type,
+            force_save: args.force_save,
         }
     }
 }
@@ -182,7 +185,7 @@ impl Pipeline {
             EVALUATE_ITERATIONS,
         );
 
-        result.score_rate >= MIN_SCORE_RATE
+        result.score_rate >= MIN_SCORE_RATE || self.config.force_save
     }
 
     fn should_skip_version(&self, version: usize) -> bool {
