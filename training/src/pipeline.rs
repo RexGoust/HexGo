@@ -348,3 +348,56 @@ impl Pipeline {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::RngExt;
+
+    #[test]
+    fn load_recent_samples_returns_empty_when_generations_is_zero() {
+        let samples = Pipeline::load_recent_samples(10, 0);
+        assert!(samples.is_empty());
+    }
+
+    #[test]
+    fn test_load_recent_samples_window() {
+        let base_version: usize = 99000 + rand::rng().random_range(1000..9000);
+        let sample_v0 = vec![TrainingSample {
+            state: vec![0.0],
+            policy: vec![1.0],
+            value: 0.0,
+        }];
+        let sample_v1 = vec![TrainingSample {
+            state: vec![1.0],
+            policy: vec![1.0],
+            value: 1.0,
+        }];
+        let sample_v2 = vec![TrainingSample {
+            state: vec![2.0],
+            policy: vec![1.0],
+            value: 2.0,
+        }];
+
+        Pipeline::save_samples(base_version, &sample_v0);
+        Pipeline::save_samples(base_version + 1, &sample_v1);
+        Pipeline::save_samples(base_version + 2, &sample_v2);
+
+        // Load 2 recent generations ending at base_version + 2 -> should load v1 and v2
+        let loaded_2 = Pipeline::load_recent_samples(base_version + 2, 2);
+        assert_eq!(loaded_2.len(), 2);
+        assert_eq!(loaded_2[0], sample_v1[0]);
+        assert_eq!(loaded_2[1], sample_v2[0]);
+
+        // Load 5 recent generations ending at base_version + 1 -> should load v0 and v1
+        let loaded_all = Pipeline::load_recent_samples(base_version + 1, 5);
+        assert_eq!(loaded_all.len(), 2);
+        assert_eq!(loaded_all[0], sample_v0[0]);
+        assert_eq!(loaded_all[1], sample_v1[0]);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 2));
+    }
+}

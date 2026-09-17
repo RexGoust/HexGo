@@ -29,3 +29,49 @@ pub fn load_samples(path: &str) -> std::io::Result<Vec<TrainingSample>> {
     let mut reader = BufReader::new(file);
     bincode::deserialize_from(&mut reader).map_err(std::io::Error::other)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::RngExt;
+
+    #[test]
+    fn save_and_load_samples_preserves_data() {
+        let samples = vec![
+            TrainingSample {
+                state: vec![1.0, 0.0, -1.0],
+                policy: vec![0.1, 0.9],
+                value: 0.5,
+            },
+            TrainingSample {
+                state: vec![0.0, 1.0, 0.0],
+                policy: vec![0.5, 0.5],
+                value: -1.0,
+            },
+        ];
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "hexgo-test-dataset-{}",
+            rand::rng().random::<u64>()
+        ));
+        let file_path = temp_dir.join("sub_dir").join("samples.bin");
+        let path_str = file_path.to_str().unwrap();
+
+        save_samples(path_str, &samples).expect("failed to save samples");
+        let loaded = load_samples(path_str).expect("failed to load samples");
+
+        assert_eq!(loaded, samples);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn load_samples_fails_on_non_existent_path() {
+        let non_existent = format!(
+            "/tmp/hexgo-missing-samples-{}.bin",
+            rand::rng().random::<u64>()
+        );
+        let result = load_samples(&non_existent);
+        assert!(result.is_err());
+    }
+}
