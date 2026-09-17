@@ -117,7 +117,7 @@ impl Pipeline {
     }
 
     fn save_samples(version: usize, sample: &[TrainingSample]) {
-        let path = format!("data/v{}/self_play.bin", version);
+        let path = format!("data/v{}/self_play.bin.zst", version);
 
         let result = dataset::save_samples(&path, sample);
 
@@ -127,7 +127,7 @@ impl Pipeline {
     }
 
     fn load_samples(version: usize) -> Vec<TrainingSample> {
-        let path = format!("data/v{}/self_play.bin", version);
+        let path = format!("data/v{}/self_play.bin.zst", version);
 
         let result = dataset::load_samples(&path);
 

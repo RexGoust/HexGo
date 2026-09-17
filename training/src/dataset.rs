@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufWriter, Write};
 use std::path::Path;
+use zstd::stream::read::Decoder;
+use zstd::stream::write::Encoder;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TrainingSample {
     pub state: Vec<f32>,
@@ -18,16 +21,21 @@ pub fn save_samples(path: &str, samples: &[TrainingSample]) -> std::io::Result<(
     }
 
     let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    bincode::serialize_into(&mut writer, samples).map_err(std::io::Error::other)?;
+    let writer = BufWriter::new(file);
+
+    let mut encoder = Encoder::new(writer, 3)?;
+
+    bincode::serialize_into(&mut encoder, samples).map_err(std::io::Error::other)?;
+
+    let mut writer = encoder.finish()?;
     writer.flush()?;
     Ok(())
 }
 
 pub fn load_samples(path: &str) -> std::io::Result<Vec<TrainingSample>> {
     let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-    bincode::deserialize_from(&mut reader).map_err(std::io::Error::other)
+    let mut decoder = Decoder::new(file)?;
+    bincode::deserialize_from(&mut decoder).map_err(std::io::Error::other)
 }
 
 #[cfg(test)]
@@ -54,7 +62,7 @@ mod tests {
             "hexgo-test-dataset-{}",
             rand::rng().random::<u64>()
         ));
-        let file_path = temp_dir.join("sub_dir").join("samples.bin");
+        let file_path = temp_dir.join("sub_dir").join("samples.bin.zst");
         let path_str = file_path.to_str().unwrap();
 
         save_samples(path_str, &samples).expect("failed to save samples");
@@ -68,7 +76,7 @@ mod tests {
     #[test]
     fn load_samples_fails_on_non_existent_path() {
         let non_existent = format!(
-            "/tmp/hexgo-missing-samples-{}.bin",
+            "/tmp/hexgo-missing-samples-{}.bin.zst",
             rand::rng().random::<u64>()
         );
         let result = load_samples(&non_existent);
