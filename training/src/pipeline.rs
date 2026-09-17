@@ -34,6 +34,7 @@ const MIN_SCORE_RATE: f32 = 0.55;
 const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
 
 const RECENT_GENERATIONS: usize = 4;
+const CURRENT_VERSION_SAMPLE_RATIO: f64 = 0.7;
 
 pub struct TrainingConfig {
     pub games: usize,
@@ -143,16 +144,43 @@ impl Pipeline {
             return Vec::new();
         }
 
-        let mut all = Vec::new();
         let start = version.saturating_sub(generations - 1);
-        for v in start..=version {
+        let mut history_samples = Vec::new();
+        for v in start..version {
             let mut samples = Self::load_samples(v);
-            all.append(&mut samples);
+            history_samples.append(&mut samples);
         }
+
+        let mut current_samples = Self::load_samples(version);
+
+        if !current_samples.is_empty() && !history_samples.is_empty() {
+            let target_history = ((current_samples.len() as f64)
+                * ((1.0 - CURRENT_VERSION_SAMPLE_RATIO) / CURRENT_VERSION_SAMPLE_RATIO))
+                .round() as usize;
+            let target_history = if target_history == 0 {
+                1
+            } else {
+                target_history
+            };
+            if history_samples.len() > target_history {
+                history_samples.shuffle(&mut rand::rng());
+                history_samples.truncate(target_history);
+            }
+        }
+
+        let current_count = current_samples.len();
+        let history_count = history_samples.len();
+
+        let mut all = history_samples;
+        all.append(&mut current_samples);
+
         println!(
-            "loaded {} samples from {} generations",
+            "loaded {} samples from {} generations (v{}: {}, history: {})",
             all.len(),
-            generations
+            generations,
+            version,
+            current_count,
+            history_count
         );
         all
     }
@@ -403,5 +431,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
         let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
         let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 2));
+    }
+
+    #[test]
+    fn test_load_recent_samples_ratio_70_30() {
+        let base_version: usize = 88000 + rand::rng().random_range(1000..9000);
+        let sample = TrainingSample {
+            state: vec![0.0],
+            policy: vec![1.0],
+            value: 0.0,
+        };
+        let current_samples = vec![sample.clone(); 70];
+        let history_samples = vec![sample.clone(); 100];
+
+        Pipeline::save_samples(base_version, &history_samples);
+        Pipeline::save_samples(base_version + 1, &current_samples);
+
+        let loaded = Pipeline::load_recent_samples(base_version + 1, 2);
+        // Target history: round(70 * 0.3 / 0.7) = 30
+        // Total loaded: 70 (v1) + 30 (v0) = 100
+        assert_eq!(loaded.len(), 100);
+
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
     }
 }

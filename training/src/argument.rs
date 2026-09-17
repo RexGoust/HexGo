@@ -44,7 +44,7 @@ pub struct TrainArgs {
     pub start_version: usize,
 
     /// Number of training epochs per pipeline run
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = 15)]
     pub epochs: usize,
 
     /// Number of samples per training batch
