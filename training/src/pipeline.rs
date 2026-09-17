@@ -95,8 +95,6 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
-        Self::save_samples(0, &samples);
-
         let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
 
         let model = self.train(model, samples, device);
@@ -301,7 +299,7 @@ impl Pipeline {
             let model = Self::load_model(self.current_version - 1, device);
 
             let baseline = model.clone();
-            let mut samples = self.generate_self_play_data(&model);
+            let samples = self.generate_self_play_data(&model);
 
             println!(
                 "v{}: generated {} samples",
@@ -309,12 +307,12 @@ impl Pipeline {
                 samples.len()
             );
 
-            Self::save_samples(self.current_version, &samples);
+            Self::save_samples(self.current_version - 1, &samples);
 
-            samples.extend(Self::load_recent_samples(
+            let mut samples = Self::load_recent_samples(
                 self.current_version.saturating_sub(1),
                 RECENT_GENERATIONS,
-            ));
+            );
 
             println!(
                 "v{}: loaded total {} samples",
