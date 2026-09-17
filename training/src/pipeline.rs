@@ -15,7 +15,7 @@ use rand::seq::SliceRandom;
 
 use crate::{
     argument::TrainArgs,
-    dataset::TrainingSample,
+    dataset::{self, TrainingSample},
     evaluation::{self},
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
@@ -32,6 +32,8 @@ const TRAIN_RATIO: f32 = 0.9;
 const MIN_SCORE_RATE: f32 = 0.55;
 
 const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
+
+const RECENT_GENERATIONS: usize = 4;
 
 pub struct TrainingConfig {
     pub games: usize,
@@ -93,6 +95,8 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
+        Self::save_samples(0, &samples);
+
         let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
 
         let model = self.train(model, samples, device);
@@ -110,6 +114,49 @@ impl Pipeline {
     fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
         let path = format!("checkpoints/v{}/model", version);
         store::save_model(path, model, self.config.store_type);
+    }
+
+    fn save_samples(version: usize, sample: &[TrainingSample]) {
+        let path = format!("data/v{}/self_play.bin", version);
+
+        let result = dataset::save_samples(&path, sample);
+
+        if let Err(err) = result {
+            println!("can't save sample, {}", err);
+        }
+    }
+
+    fn load_samples(version: usize) -> Vec<TrainingSample> {
+        let path = format!("data/v{}/self_play.bin", version);
+
+        let result = dataset::load_samples(&path);
+
+        match result {
+            Err(err) => {
+                println!("can't load sample, {}", err);
+                Vec::new()
+            }
+            Ok(samples) => samples,
+        }
+    }
+
+    pub fn load_recent_samples(version: usize, generations: usize) -> Vec<TrainingSample> {
+        if generations == 0 {
+            return Vec::new();
+        }
+
+        let mut all = Vec::new();
+        let start = version.saturating_sub(generations - 1);
+        for v in start..=version {
+            let mut samples = Self::load_samples(v);
+            all.append(&mut samples);
+        }
+        println!(
+            "loaded {} samples from {} generations",
+            all.len(),
+            generations
+        );
+        all
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -254,13 +301,22 @@ impl Pipeline {
             let model = Self::load_model(self.current_version - 1, device);
 
             let baseline = model.clone();
-            let samples = self.generate_self_play_data(&model);
+            let mut samples = self.generate_self_play_data(&model);
 
             println!(
                 "v{}: generated {} samples",
                 self.current_version,
                 samples.len()
             );
+
+            Self::save_samples(self.current_version, &samples);
+
+            samples.extend(Self::load_recent_samples(
+                self.current_version.saturating_sub(1),
+                RECENT_GENERATIONS,
+            ));
+
+            samples.shuffle(&mut rand::rng());
 
             let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
                 model
