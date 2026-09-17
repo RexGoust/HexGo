@@ -7,9 +7,9 @@ use burn::{
     tensor::{TensorData, activation::softmax},
 };
 
-use crate::{
-    ai::backend::default_device,
-    ai::backend::{Backend, Device},
+use crate::ai::{
+    backend::{Backend, Device, default_device},
+    model::ModelConfig,
 };
 
 use crate::{
@@ -35,14 +35,14 @@ pub struct BurnNeuralNetwork {
 
 impl BurnNeuralNetwork {
     #[allow(clippy::clone_on_copy)]
-    pub fn load() -> Self {
+    pub fn load(config: ModelConfig) -> Self {
         let device: &Device = &default_device();
 
         let record = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new()
             .load(MODEL.to_vec(), device)
             .expect("failed to load model");
 
-        let model = HexGoModel::<Backend>::new(device).load_record(record);
+        let model = HexGoModel::<Backend>::new(config, device).load_record(record);
 
         Self {
             model,

@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use hex_go::ai::model::store::StoreType;
 #[derive(Parser)]
 #[command(styles = clap_cargo::style::CLAP_STYLING)]
 #[command(name = "hexgo-train", version, about = "HexGo AI tools")]
@@ -15,6 +16,10 @@ pub enum Command {
     /// Evaluate the model
     #[command(alias = "eval")]
     Evaluate(EvaluateArgs),
+
+    /// Convert model checkpoint between storage formats (e.g. .mpk ↔ .bpk)
+    #[command(alias = "conv")]
+    Convert(ConvertArgs),
 }
 
 #[derive(Args)]
@@ -36,7 +41,7 @@ pub struct TrainArgs {
     pub start_version: usize,
 
     /// Number of training epochs per pipeline run
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 30)]
     pub epochs: usize,
 
     /// Number of samples per training batch
@@ -46,6 +51,13 @@ pub struct TrainArgs {
     /// Retrain and overwrite the checkpoint even if it already exists
     #[arg(long)]
     pub no_skip: bool,
+
+    /// Model storage format to use for saving checkpoints
+    #[arg(long, value_enum, default_value_t = StoreType::BPK)]
+    pub store_type: StoreType,
+
+    #[arg(long)]
+    pub force_save: bool,
 }
 
 #[derive(Args)]
@@ -65,4 +77,15 @@ pub struct EvaluateArgs {
     /// Number of MCTS iterations
     #[arg(short, long, default_value_t = 800)]
     pub iterations: u32,
+}
+
+#[derive(Args)]
+pub struct ConvertArgs {
+    /// The path to the input model checkpoint.
+    #[arg(short, long)]
+    pub input: String,
+
+    /// The path to the output model checkpoint.
+    #[arg(short, long)]
+    pub output: String,
 }

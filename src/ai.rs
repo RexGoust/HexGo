@@ -121,6 +121,7 @@ pub(crate) fn update_ai(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::model::ModelConfig;
     use crate::game::player::Player::{Black, White};
     use crate::session::GameSession;
     use crate::worker::Worker;
@@ -134,7 +135,7 @@ mod tests {
         app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
             .insert_resource(NeuralNetworkResource {
-                network: Arc::new(BurnNeuralNetwork::load()),
+                network: Arc::new(BurnNeuralNetwork::load(ModelConfig::default())),
             })
             .init_resource::<AiState>()
             .add_systems(Update, update_ai);

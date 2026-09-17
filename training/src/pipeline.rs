@@ -5,7 +5,10 @@ use hex_go::ai::{
     backend::default_device,
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
-    model::HexGoModel,
+    model::{
+        HexGoModel, ModelConfig,
+        store::{self, StoreType},
+    },
     neural_mcts::{NeuralConfig, NeuralMcts},
 };
 use rand::seq::SliceRandom;
@@ -15,7 +18,6 @@ use crate::{
     dataset::TrainingSample,
     evaluation::{self},
     self_play::generate_self_play_games,
-    store,
     train::{train_on_samples, validation_step},
 };
 use hex_go::ai::backend::{Backend as InnerBackend, Device};
@@ -28,6 +30,8 @@ const EVALUATE_ITERATIONS: usize = 800;
 const TRAIN_RATIO: f32 = 0.9;
 
 const MIN_SCORE_RATE: f32 = 0.55;
+
+const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
 
 pub struct TrainingConfig {
     pub games: usize,
@@ -43,6 +47,10 @@ pub struct TrainingConfig {
     pub batch_size: usize,
 
     pub no_skip: bool,
+
+    pub store_type: StoreType,
+
+    pub force_save: bool,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -55,6 +63,8 @@ impl From<TrainArgs> for TrainingConfig {
             epochs: args.epochs,
             batch_size: args.batch_size,
             no_skip: args.no_skip,
+            store_type: args.store_type,
+            force_save: args.force_save,
         }
     }
 }
@@ -83,11 +93,11 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
-        let model = HexGoModel::<Backend>::new(device);
+        let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
 
         let model = self.train(model, samples, device);
 
-        Self::save_model(0, model);
+        self.save_model(0, model);
 
         println!("v0: train finished, time consumed: {:?}", t.elapsed());
     }
@@ -97,9 +107,9 @@ impl Pipeline {
         store::load_model(path, device)
     }
 
-    fn save_model(version: usize, model: HexGoModel<Backend>) {
+    fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
         let path = format!("checkpoints/v{}/model", version);
-        store::save_model(path, model);
+        store::save_model(path, model, self.config.store_type);
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -175,30 +185,48 @@ impl Pipeline {
             EVALUATE_ITERATIONS,
         );
 
-        result.score_rate >= MIN_SCORE_RATE
+        result.score_rate >= MIN_SCORE_RATE || self.config.force_save
     }
 
     fn should_skip_version(&self, version: usize) -> bool {
         if self.config.no_skip {
             return false;
         }
-        let path_str = format!("checkpoints/v{}/model.mpk", version);
-        let path = Path::new(&path_str);
 
-        match path.try_exists() {
-            Ok(true) => {
-                println!(
-                    "checkpoint for v{} already exists, skipping (use --no-skip to override)",
-                    version
-                );
-                true
-            }
-            Ok(false) => false,
+        let suffixes = ["mpk", "bpk"];
+        let mut found: Option<String> = None;
+        let mut error: Option<(String, std::io::Error)> = None;
 
-            Err(e) => {
-                eprintln!("failed to check checkpoint for v{}: {}", version, e);
-                panic!();
+        for suffix in &suffixes {
+            let path_str = format!("checkpoints/v{}/model.{}", version, suffix);
+            let path = Path::new(&path_str);
+
+            match path.try_exists() {
+                Ok(true) => {
+                    found = Some(path_str);
+                    break;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    error = Some((path_str, e));
+                    break;
+                }
             }
+        }
+
+        if let Some((_path_str, e)) = error {
+            eprintln!("failed to check checkpoint for v{}: {}", version, e);
+            panic!();
+        }
+
+        if let Some(path_str) = found {
+            println!(
+                "checkpoint {} already exists, skipping (use --no-skip to override)",
+                path_str
+            );
+            true
+        } else {
+            false
         }
     }
 
@@ -224,6 +252,7 @@ impl Pipeline {
             println!("v{}: start training...", self.current_version);
 
             let model = Self::load_model(self.current_version - 1, device);
+
             let baseline = model.clone();
             let samples = self.generate_self_play_data(&model);
 
@@ -233,12 +262,18 @@ impl Pipeline {
                 samples.len()
             );
 
+            let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
+                model
+            } else {
+                HexGoModel::new(CURRENT_TRAIN_MODEL_CONFIG, device)
+            };
+
             let candidate = self.train(model, samples, device);
 
             let success = self.evaluate(&candidate, &baseline);
 
             if success {
-                Self::save_model(self.current_version, candidate);
+                self.save_model(self.current_version, candidate);
                 println!(
                     "v{}: train finished, time consumed: {:?}",
                     self.current_version,
