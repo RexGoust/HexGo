@@ -316,6 +316,12 @@ impl Pipeline {
                 RECENT_GENERATIONS,
             ));
 
+            println!(
+                "v{}: loaded total {} samples",
+                self.current_version,
+                samples.len()
+            );
+
             samples.shuffle(&mut rand::rng());
 
             let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
