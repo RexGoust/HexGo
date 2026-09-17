@@ -194,6 +194,70 @@ mod tests {
     }
 
     #[test]
+    fn save_and_load_bpk_preserves_weights() {
+        let device = Default::default();
+        let config = ModelConfig { hidden_size: 64 };
+        let model = HexGoModel::<TestBackend>::new(config.clone(), &device);
+
+        let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let expected_output = model.forward(input.clone());
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "hexgo-test-store-bpk-{}",
+            rand::rng().random::<u64>()
+        ));
+        let model_path = temp_dir.join("sub_dir").join("model");
+
+        save_model(&model_path, model, StoreType::BPK);
+        let loaded_model = load_model::<TestBackend>(&model_path, &device);
+
+        assert_eq!(loaded_model.config(), config);
+
+        let actual_output = loaded_model.forward(input);
+
+        let expected_val = expected_output.value.into_data().to_vec::<f32>().unwrap();
+        let actual_val = actual_output.value.into_data().to_vec::<f32>().unwrap();
+        assert_eq!(expected_val.len(), actual_val.len());
+        for (e, a) in expected_val.iter().zip(&actual_val) {
+            assert!(
+                (e - a).abs() < 1e-3,
+                "value mismatch: expected {e}, got {a}"
+            );
+        }
+
+        let expected_policy = expected_output.policy.into_data().to_vec::<f32>().unwrap();
+        let actual_policy = actual_output.policy.into_data().to_vec::<f32>().unwrap();
+        assert_eq!(expected_policy.len(), actual_policy.len());
+        for (e, a) in expected_policy.iter().zip(&actual_policy) {
+            assert!(
+                (e - a).abs() < 1e-3,
+                "policy mismatch: expected {e}, got {a}"
+            );
+        }
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn load_model_supports_explicit_bpk_extension() {
+        let device = Default::default();
+        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "hexgo-test-store-bpk-ext-{}",
+            rand::rng().random::<u64>()
+        ));
+        let model_path = temp_dir.join("model");
+
+        save_model(&model_path, model, StoreType::BPK);
+
+        let bpk_path = temp_dir.join("model.bpk");
+        let _loaded_model = load_model::<TestBackend>(&bpk_path, &device);
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
     #[should_panic(expected = "failed to load checkpoint from")]
     fn load_model_panics_when_file_not_found() {
         let device = Default::default();
