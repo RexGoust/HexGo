@@ -1,17 +1,19 @@
 mod argument;
+mod convert;
 mod dataset;
 mod evaluation;
 mod loss;
 mod pipeline;
 mod sampler;
 mod self_play;
-
 mod tensor;
 mod train;
+
 use clap::Parser;
 
 use crate::{
     argument::{Cli, Command},
+    convert::convert_model,
     evaluation::EvaluationConfig,
     pipeline::{Pipeline, TrainingConfig},
 };
@@ -25,6 +27,9 @@ fn main() {
         }
         Command::Evaluate(args) => {
             evaluation::create_evaluate(EvaluationConfig::from(args));
+        }
+        Command::Convert(args) => {
+            convert_model(&args.input, &args.output);
         }
     }
 }

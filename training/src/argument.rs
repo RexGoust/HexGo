@@ -16,6 +16,10 @@ pub enum Command {
     /// Evaluate the model
     #[command(alias = "eval")]
     Evaluate(EvaluateArgs),
+
+    /// Convert model checkpoint between storage formats (e.g. .mpk ↔ .bpk)
+    #[command(alias = "conv")]
+    Convert(ConvertArgs),
 }
 
 #[derive(Args)]
@@ -37,7 +41,7 @@ pub struct TrainArgs {
     pub start_version: usize,
 
     /// Number of training epochs per pipeline run
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 30)]
     pub epochs: usize,
 
     /// Number of samples per training batch
@@ -70,4 +74,15 @@ pub struct EvaluateArgs {
     /// Number of MCTS iterations
     #[arg(short, long, default_value_t = 800)]
     pub iterations: u32,
+}
+
+#[derive(Args)]
+pub struct ConvertArgs {
+    /// The path to the input model checkpoint.
+    #[arg(short, long)]
+    pub input: String,
+
+    /// The path to the output model checkpoint.
+    #[arg(short, long)]
+    pub output: String,
 }
