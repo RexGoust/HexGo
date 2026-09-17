@@ -11,21 +11,36 @@ pub enum StoreType {
 }
 
 pub fn get_store_type(path: &str) -> Option<StoreType> {
-    let ext = Path::new(path)
+    let path_obj = Path::new(path);
+    let ext = path_obj
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
     match ext.as_str() {
-        "bpk" => Some(StoreType::BPK),
-        "mpk" => Some(StoreType::MPK),
-
+        "bpk" => return Some(StoreType::BPK),
+        "mpk" => return Some(StoreType::MPK),
+        "" => {}
         _ => {
             println!("Unsupported model format: .{}", ext);
-            None
+            return None;
         }
     }
+
+    for suffix in ["mpk", "bpk"] {
+        let candidate = path_obj.with_extension(suffix);
+        if candidate.is_file() {
+            return match suffix {
+                "bpk" => Some(StoreType::BPK),
+                "mpk" => Some(StoreType::MPK),
+                _ => unreachable!(),
+            };
+        }
+    }
+
+    println!("No model file found for base path: {}", path);
+    None
 }
 
 fn load_config(path: impl AsRef<Path>) -> ModelConfig {
@@ -47,11 +62,12 @@ fn load_config(path: impl AsRef<Path>) -> ModelConfig {
 }
 
 pub fn load_model<B: Backend>(path: impl AsRef<Path>, device: &Device<B>) -> HexGoModel<B> {
-    let model_type = get_store_type(path.as_ref().to_str().unwrap()).unwrap();
+    let model_type = get_store_type(path.as_ref().to_str().unwrap())
+        .unwrap_or_else(|| panic!("failed to load checkpoint from {}", path.as_ref().display()));
 
     match model_type {
         StoreType::MPK => {
-            println!("waring this type is departured, will use the default model config");
+            println!("warning this store type(mpk) is departured");
             HexGoModel::new(
                 load_config(path.as_ref().with_file_name("config.json")),
                 device,
@@ -70,7 +86,9 @@ pub fn load_model<B: Backend>(path: impl AsRef<Path>, device: &Device<B>) -> Hex
                 device,
             );
 
-            let result = model.load_from(&mut store).expect("Failed to load model");
+            let result = model.load_from(&mut store).unwrap_or_else(|_| {
+                panic!("failed to load checkpoint from {}", path.as_ref().display())
+            });
 
             if !result.missing.is_empty() {
                 eprintln!("Missing tensors: {:?}", result.missing);
@@ -81,21 +99,24 @@ pub fn load_model<B: Backend>(path: impl AsRef<Path>, device: &Device<B>) -> Hex
     }
 }
 
-pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>) {
+pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>, store_type: StoreType) {
     if let Some(parent) = path.as_ref().parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent).expect("failed to create checkpoints directory");
     }
 
-    let model_type = get_store_type(path.as_ref().to_str().unwrap()).unwrap();
-    match model_type {
+    let json = serde_json::to_string(&model.config()).unwrap();
+    std::fs::write(path.as_ref().with_file_name("config.json"), json)
+        .expect("failed to save config.json");
+
+    match store_type {
         StoreType::BPK => {
-            let mut store = BurnpackStore::from_file("model.bpk");
+            let mut store = BurnpackStore::from_file(path.as_ref()).overwrite(true);
             model.save_into(&mut store).expect("failed to save model");
         }
         StoreType::MPK => {
-            println!("waring this type is departured");
+            println!("warning this type is departured");
             model
                 .save_file(path.as_ref().to_path_buf(), &CompactRecorder::new())
                 .expect("failed to save model");
@@ -125,7 +146,7 @@ mod tests {
             std::env::temp_dir().join(format!("hexgo-test-store-{}", rand::rng().random::<u64>()));
         let model_path = temp_dir.join("sub_dir").join("model");
 
-        save_model(&model_path, model);
+        save_model(&model_path, model, StoreType::MPK);
         let loaded_model = load_model::<TestBackend>(&model_path, &device);
 
         let actual_output = loaded_model.forward(input);
@@ -164,7 +185,7 @@ mod tests {
         ));
         let model_path = temp_dir.join("model");
 
-        save_model(&model_path, model);
+        save_model(&model_path, model, StoreType::MPK);
 
         let mpk_path = temp_dir.join("model.mpk");
         let _loaded_model = load_model::<TestBackend>(&mpk_path, &device);

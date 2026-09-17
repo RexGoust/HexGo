@@ -100,7 +100,7 @@ impl Pipeline {
 
     fn save_model(version: usize, model: HexGoModel<Backend>) {
         let path = format!("checkpoints/v{}/model", version);
-        store::save_model(path, model);
+        store::save_model(path, model, store::StoreType::BPK);
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -183,23 +183,41 @@ impl Pipeline {
         if self.config.no_skip {
             return false;
         }
-        let path_str = format!("checkpoints/v{}/model.mpk", version);
-        let path = Path::new(&path_str);
 
-        match path.try_exists() {
-            Ok(true) => {
-                println!(
-                    "checkpoint for v{} already exists, skipping (use --no-skip to override)",
-                    version
-                );
-                true
-            }
-            Ok(false) => false,
+        let suffixes = ["mpk", "bpk"];
+        let mut found: Option<String> = None;
+        let mut error: Option<(String, std::io::Error)> = None;
 
-            Err(e) => {
-                eprintln!("failed to check checkpoint for v{}: {}", version, e);
-                panic!();
+        for suffix in &suffixes {
+            let path_str = format!("checkpoints/v{}/model.{}", version, suffix);
+            let path = Path::new(&path_str);
+
+            match path.try_exists() {
+                Ok(true) => {
+                    found = Some(path_str);
+                    break;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    error = Some((path_str, e));
+                    break;
+                }
             }
+        }
+
+        if let Some((_path_str, e)) = error {
+            eprintln!("failed to check checkpoint for v{}: {}", version, e);
+            panic!();
+        }
+
+        if let Some(path_str) = found {
+            println!(
+                "checkpoint {} already exists, skipping (use --no-skip to override)",
+                path_str
+            );
+            true
+        } else {
+            false
         }
     }
 
