@@ -43,7 +43,7 @@ impl BurnNeuralNetwork {
                 ModelConfig::Mlp(MLPModelConfig::default())
             }
         };
-        let mut store = BurnpackStore::from_static(MODEL);
+        let mut store = BurnpackStore::from_static(MODEL).zero_copy(false);
         let model = match config {
             ModelConfig::Mlp(cfg) => {
                 let mut mlp = MLPModel::<Backend>::new(cfg, device);
