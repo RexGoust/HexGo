@@ -4,6 +4,7 @@ mod dataset;
 mod evaluation;
 mod loss;
 mod pipeline;
+mod play;
 mod sampler;
 mod self_play;
 mod tensor;
@@ -30,6 +31,9 @@ fn main() {
         }
         Command::Convert(args) => {
             convert_model(&args.input, &args.output);
+        }
+        Command::Play(args) => {
+            play::self_play(args);
         }
     }
 }

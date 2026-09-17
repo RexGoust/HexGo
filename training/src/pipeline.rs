@@ -15,7 +15,7 @@ use rand::seq::SliceRandom;
 
 use crate::{
     argument::TrainArgs,
-    dataset::TrainingSample,
+    dataset::{self, TrainingSample},
     evaluation::{self},
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
@@ -32,6 +32,9 @@ const TRAIN_RATIO: f32 = 0.9;
 const MIN_SCORE_RATE: f32 = 0.55;
 
 const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
+
+const RECENT_GENERATIONS: usize = 4;
+const CURRENT_VERSION_SAMPLE_RATIO: f64 = 0.7;
 
 pub struct TrainingConfig {
     pub games: usize,
@@ -110,6 +113,76 @@ impl Pipeline {
     fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
         let path = format!("checkpoints/v{}/model", version);
         store::save_model(path, model, self.config.store_type);
+    }
+
+    fn save_samples(version: usize, sample: &[TrainingSample]) {
+        let path = format!("data/v{}/self_play.bin.zst", version);
+
+        let result = dataset::save_samples(&path, sample);
+
+        if let Err(err) = result {
+            println!("can't save sample, {}", err);
+        }
+    }
+
+    fn load_samples(version: usize) -> Vec<TrainingSample> {
+        let path = format!("data/v{}/self_play.bin.zst", version);
+
+        let result = dataset::load_samples(&path);
+
+        match result {
+            Err(err) => {
+                println!("can't load sample, {}", err);
+                Vec::new()
+            }
+            Ok(samples) => samples,
+        }
+    }
+
+    pub fn load_recent_samples(version: usize, generations: usize) -> Vec<TrainingSample> {
+        if generations == 0 {
+            return Vec::new();
+        }
+
+        let start = version.saturating_sub(generations - 1);
+        let mut history_samples = Vec::new();
+        for v in start..version {
+            let mut samples = Self::load_samples(v);
+            history_samples.append(&mut samples);
+        }
+
+        let mut current_samples = Self::load_samples(version);
+
+        if !current_samples.is_empty() && !history_samples.is_empty() {
+            let target_history = ((current_samples.len() as f64)
+                * ((1.0 - CURRENT_VERSION_SAMPLE_RATIO) / CURRENT_VERSION_SAMPLE_RATIO))
+                .round() as usize;
+            let target_history = if target_history == 0 {
+                1
+            } else {
+                target_history
+            };
+            if history_samples.len() > target_history {
+                history_samples.shuffle(&mut rand::rng());
+                history_samples.truncate(target_history);
+            }
+        }
+
+        let current_count = current_samples.len();
+        let history_count = history_samples.len();
+
+        let mut all = history_samples;
+        all.append(&mut current_samples);
+
+        println!(
+            "loaded {} samples from {} generations (v{}: {}, history: {})",
+            all.len(),
+            generations,
+            version,
+            current_count,
+            history_count
+        );
+        all
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -262,6 +335,21 @@ impl Pipeline {
                 samples.len()
             );
 
+            Self::save_samples(self.current_version - 1, &samples);
+
+            let mut samples = Self::load_recent_samples(
+                self.current_version.saturating_sub(1),
+                RECENT_GENERATIONS,
+            );
+
+            println!(
+                "v{}: loaded total {} samples",
+                self.current_version,
+                samples.len()
+            );
+
+            samples.shuffle(&mut rand::rng());
+
             let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
                 model
             } else {
@@ -290,5 +378,81 @@ impl Pipeline {
 
             trained += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::RngExt;
+
+    #[test]
+    fn load_recent_samples_returns_empty_when_generations_is_zero() {
+        let samples = Pipeline::load_recent_samples(10, 0);
+        assert!(samples.is_empty());
+    }
+
+    #[test]
+    fn test_load_recent_samples_window() {
+        let base_version: usize = 99000 + rand::rng().random_range(1000..9000);
+        let sample_v0 = vec![TrainingSample {
+            state: vec![0.0],
+            policy: vec![1.0],
+            value: 0.0,
+        }];
+        let sample_v1 = vec![TrainingSample {
+            state: vec![1.0],
+            policy: vec![1.0],
+            value: 1.0,
+        }];
+        let sample_v2 = vec![TrainingSample {
+            state: vec![2.0],
+            policy: vec![1.0],
+            value: 2.0,
+        }];
+
+        Pipeline::save_samples(base_version, &sample_v0);
+        Pipeline::save_samples(base_version + 1, &sample_v1);
+        Pipeline::save_samples(base_version + 2, &sample_v2);
+
+        // Load 2 recent generations ending at base_version + 2 -> should load v1 and v2
+        let loaded_2 = Pipeline::load_recent_samples(base_version + 2, 2);
+        assert_eq!(loaded_2.len(), 2);
+        assert_eq!(loaded_2[0], sample_v1[0]);
+        assert_eq!(loaded_2[1], sample_v2[0]);
+
+        // Load 5 recent generations ending at base_version + 1 -> should load v0 and v1
+        let loaded_all = Pipeline::load_recent_samples(base_version + 1, 5);
+        assert_eq!(loaded_all.len(), 2);
+        assert_eq!(loaded_all[0], sample_v0[0]);
+        assert_eq!(loaded_all[1], sample_v1[0]);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 2));
+    }
+
+    #[test]
+    fn test_load_recent_samples_ratio_70_30() {
+        let base_version: usize = 88000 + rand::rng().random_range(1000..9000);
+        let sample = TrainingSample {
+            state: vec![0.0],
+            policy: vec![1.0],
+            value: 0.0,
+        };
+        let current_samples = vec![sample.clone(); 70];
+        let history_samples = vec![sample.clone(); 100];
+
+        Pipeline::save_samples(base_version, &history_samples);
+        Pipeline::save_samples(base_version + 1, &current_samples);
+
+        let loaded = Pipeline::load_recent_samples(base_version + 1, 2);
+        // Target history: round(70 * 0.3 / 0.7) = 30
+        // Total loaded: 70 (v1) + 30 (v0) = 100
+        assert_eq!(loaded.len(), 100);
+
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
+        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
     }
 }

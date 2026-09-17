@@ -20,6 +20,9 @@ pub enum Command {
     /// Convert model checkpoint between storage formats (e.g. .mpk ↔ .bpk)
     #[command(alias = "conv")]
     Convert(ConvertArgs),
+
+    /// Self play and save play data
+    Play(PlayArgs),
 }
 
 #[derive(Args)]
@@ -41,7 +44,7 @@ pub struct TrainArgs {
     pub start_version: usize,
 
     /// Number of training epochs per pipeline run
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = 15)]
     pub epochs: usize,
 
     /// Number of samples per training batch
@@ -88,4 +91,34 @@ pub struct ConvertArgs {
     /// The path to the output model checkpoint.
     #[arg(short, long)]
     pub output: String,
+}
+
+#[derive(Args)]
+pub struct PlayArgs {
+    /// The path to the input model checkpoint.
+    #[arg(short, long)]
+    pub model: String,
+
+    /// The path to the output self play data.
+    #[arg(short, long)]
+    pub output: String,
+
+    /// Number of self games
+    #[arg(short, long, default_value_t = 1000)]
+    pub games: u32,
+
+    /// Number of MCTS iterations
+    #[arg(short, long, default_value_t = 800)]
+    pub iterations: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_cli() {
+        Cli::command().debug_assert();
+    }
 }
