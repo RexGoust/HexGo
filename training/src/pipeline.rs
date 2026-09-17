@@ -5,7 +5,7 @@ use hex_go::ai::{
     backend::default_device,
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
-    model::HexGoModel,
+    model::{HexGoModel, ModelConfig, store},
     neural_mcts::{NeuralConfig, NeuralMcts},
 };
 use rand::seq::SliceRandom;
@@ -15,7 +15,6 @@ use crate::{
     dataset::TrainingSample,
     evaluation::{self},
     self_play::generate_self_play_games,
-    store,
     train::{train_on_samples, validation_step},
 };
 use hex_go::ai::backend::{Backend as InnerBackend, Device};
@@ -28,6 +27,8 @@ const EVALUATE_ITERATIONS: usize = 800;
 const TRAIN_RATIO: f32 = 0.9;
 
 const MIN_SCORE_RATE: f32 = 0.55;
+
+const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
 
 pub struct TrainingConfig {
     pub games: usize,
@@ -83,7 +84,7 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
-        let model = HexGoModel::<Backend>::new(device);
+        let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
 
         let model = self.train(model, samples, device);
 
@@ -224,6 +225,7 @@ impl Pipeline {
             println!("v{}: start training...", self.current_version);
 
             let model = Self::load_model(self.current_version - 1, device);
+
             let baseline = model.clone();
             let samples = self.generate_self_play_data(&model);
 
@@ -232,6 +234,12 @@ impl Pipeline {
                 self.current_version,
                 samples.len()
             );
+
+            let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
+                model
+            } else {
+                HexGoModel::new(CURRENT_TRAIN_MODEL_CONFIG, device)
+            };
 
             let candidate = self.train(model, samples, device);
 

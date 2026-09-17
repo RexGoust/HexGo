@@ -1,12 +1,84 @@
+use crate::ai::model::{HexGoModel, ModelConfig};
 use burn::prelude::Backend;
 use burn::tensor::Device;
 use burn::{module::Module, record::CompactRecorder};
-use hex_go::ai::model::HexGoModel;
+use burn_store::{BurnpackStore, ModuleSnapshot};
 use std::{fs, path::Path};
+
+pub enum StoreType {
+    BPK,
+    MPK,
+}
+
+pub fn get_store_type(path: &str) -> Option<StoreType> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "bpk" => Some(StoreType::BPK),
+        "mpk" => Some(StoreType::MPK),
+
+        _ => {
+            println!("Unsupported model format: .{}", ext);
+            None
+        }
+    }
+}
+
+fn load_config(path: impl AsRef<Path>) -> ModelConfig {
+    let json = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => {
+            println!("can't read config file, use default config");
+            return ModelConfig::default();
+        }
+    };
+
+    match serde_json::from_str::<ModelConfig>(&json) {
+        Ok(config) => config,
+        Err(_) => {
+            println!("can't parse config, use default config");
+            ModelConfig::default()
+        }
+    }
+}
+
 pub fn load_model<B: Backend>(path: impl AsRef<Path>, device: &Device<B>) -> HexGoModel<B> {
-    HexGoModel::new(device)
-        .load_file(path.as_ref().to_path_buf(), &CompactRecorder::new(), device)
-        .unwrap_or_else(|_| panic!("failed to load checkpoint from {}", path.as_ref().display()))
+    let model_type = get_store_type(path.as_ref().to_str().unwrap()).unwrap();
+
+    match model_type {
+        StoreType::MPK => {
+            println!("waring this type is departured, will use the default model config");
+            HexGoModel::new(
+                load_config(path.as_ref().with_file_name("config.json")),
+                device,
+            )
+            .load_file(path.as_ref().to_path_buf(), &CompactRecorder::new(), device)
+            .unwrap_or_else(|_| {
+                panic!("failed to load checkpoint from {}", path.as_ref().display())
+            })
+        }
+
+        StoreType::BPK => {
+            let mut store = BurnpackStore::from_file(path.as_ref());
+
+            let mut model = HexGoModel::new(
+                load_config(path.as_ref().with_file_name("config.json")),
+                device,
+            );
+
+            let result = model.load_from(&mut store).expect("Failed to load model");
+
+            if !result.missing.is_empty() {
+                eprintln!("Missing tensors: {:?}", result.missing);
+            }
+
+            model
+        }
+    }
 }
 
 pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>) {
@@ -16,9 +88,19 @@ pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>) {
         fs::create_dir_all(parent).expect("failed to create checkpoints directory");
     }
 
-    model
-        .save_file(path.as_ref().to_path_buf(), &CompactRecorder::new())
-        .expect("failed to save model");
+    let model_type = get_store_type(path.as_ref().to_str().unwrap()).unwrap();
+    match model_type {
+        StoreType::BPK => {
+            let mut store = BurnpackStore::from_file("model.bpk");
+            model.save_into(&mut store).expect("failed to save model");
+        }
+        StoreType::MPK => {
+            println!("waring this type is departured");
+            model
+                .save_file(path.as_ref().to_path_buf(), &CompactRecorder::new())
+                .expect("failed to save model");
+        }
+    }
 
     println!("model saved to {}", path.as_ref().display());
 }
@@ -26,15 +108,15 @@ pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::backend::Backend as TestBackend;
+    use crate::ai::encoder::INPUT_SIZE;
     use burn::Tensor;
-    use hex_go::ai::backend::Backend as TestBackend;
-    use hex_go::ai::encoder::INPUT_SIZE;
     use rand::RngExt;
 
     #[test]
     fn save_and_load_model_preserves_weights() {
         let device = Default::default();
-        let model = HexGoModel::<TestBackend>::new(&device);
+        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
 
         let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
         let expected_output = model.forward(input.clone());
@@ -74,7 +156,7 @@ mod tests {
     #[test]
     fn load_model_supports_explicit_mpk_extension() {
         let device = Default::default();
-        let model = HexGoModel::<TestBackend>::new(&device);
+        let model = HexGoModel::<TestBackend>::new(ModelConfig::default(), &device);
 
         let temp_dir = std::env::temp_dir().join(format!(
             "hexgo-test-store-ext-{}",

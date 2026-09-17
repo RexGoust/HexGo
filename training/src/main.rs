@@ -5,7 +5,7 @@ mod loss;
 mod pipeline;
 mod sampler;
 mod self_play;
-mod store;
+
 mod tensor;
 mod train;
 use clap::Parser;

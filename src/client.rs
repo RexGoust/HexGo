@@ -3,7 +3,10 @@ use std::sync::Arc;
 use bevy::prelude::*;
 
 use crate::{
-    ai::{self, AiState, NeuralNetworkResource, burn_neural_network::BurnNeuralNetwork},
+    ai::{
+        self, AiState, NeuralNetworkResource, burn_neural_network::BurnNeuralNetwork,
+        model::ModelConfig,
+    },
     game::{board::VertexId, player::Player::Black, state::GameStatus},
     session::{GameMode, GameSession, SessionCommand, SessionError},
     worker::Worker,
@@ -37,7 +40,7 @@ impl Plugin for ClientPlugin {
             .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
             .insert_resource(NeuralNetworkResource {
-                network: Arc::new(BurnNeuralNetwork::load()),
+                network: Arc::new(BurnNeuralNetwork::load(ModelConfig::default())),
             })
             .init_resource::<AiState>()
             .init_resource::<UiState>();

@@ -5,6 +5,7 @@ use hex_go::{
         backend::default_device,
         burn_neural_network::BurnNeuralNetwork,
         model::HexGoModel,
+        model::store::*,
         neural_mcts::{NeuralConfig, NeuralMcts},
         search::Search,
     },
@@ -17,7 +18,7 @@ use hex_go::{
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{argument::EvaluateArgs, sampler::sample_action_by_temperature, store::load_model};
+use crate::{argument::EvaluateArgs, sampler::sample_action_by_temperature};
 
 use hex_go::ai::backend::Backend;
 

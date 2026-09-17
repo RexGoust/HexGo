@@ -4,9 +4,25 @@ use burn::{
     nn::{Linear, LinearConfig, Relu},
     prelude::*,
 };
+use serde::{Deserialize, Serialize};
 
-const HIDDEN_SIZE: usize = 128;
+pub mod store;
+
+const DEFAULT_HIDDEN_SIZE: usize = 128;
 const POLICY_SIZE: usize = ACTION_SIZE;
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ModelConfig {
+    pub hidden_size: usize,
+}
+
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            hidden_size: DEFAULT_HIDDEN_SIZE,
+        }
+    }
+}
 
 #[derive(Module, Debug)]
 pub struct HexGoModel<B: Backend> {
@@ -14,6 +30,7 @@ pub struct HexGoModel<B: Backend> {
     fc2: Linear<B>,
     policy: Linear<B>,
     value: Linear<B>,
+    config: ModelConfig,
 }
 
 pub struct ModelOutput<B: Backend> {
@@ -22,13 +39,18 @@ pub struct ModelOutput<B: Backend> {
 }
 
 impl<B: Backend> HexGoModel<B> {
-    pub fn new(device: &B::Device) -> Self {
+    pub fn new(config: ModelConfig, device: &B::Device) -> Self {
         Self {
-            fc1: LinearConfig::new(INPUT_SIZE, HIDDEN_SIZE).init(device),
-            fc2: LinearConfig::new(HIDDEN_SIZE, HIDDEN_SIZE).init(device),
-            policy: LinearConfig::new(HIDDEN_SIZE, POLICY_SIZE).init(device),
-            value: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
+            fc1: LinearConfig::new(INPUT_SIZE, config.hidden_size).init(device),
+            fc2: LinearConfig::new(config.hidden_size, config.hidden_size).init(device),
+            policy: LinearConfig::new(config.hidden_size, POLICY_SIZE).init(device),
+            value: LinearConfig::new(config.hidden_size, 1).init(device),
+            config,
         }
+    }
+
+    pub fn config(&self) -> ModelConfig {
+        self.config.clone()
     }
 
     pub fn forward(&self, input: Tensor<B, 2>) -> ModelOutput<B> {
