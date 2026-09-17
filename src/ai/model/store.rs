@@ -3,8 +3,10 @@ use burn::prelude::Backend;
 use burn::tensor::Device;
 use burn::{module::Module, record::CompactRecorder};
 use burn_store::{BurnpackStore, ModuleSnapshot};
+use clap::ValueEnum;
 use std::{fs, path::Path};
-
+#[derive(Debug, Clone, ValueEnum, Copy, PartialEq, Eq)]
+#[value(rename_all = "lower")]
 pub enum StoreType {
     BPK,
     MPK,

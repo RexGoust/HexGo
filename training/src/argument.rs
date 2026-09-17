@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use hex_go::ai::model::store::StoreType;
 #[derive(Parser)]
 #[command(styles = clap_cargo::style::CLAP_STYLING)]
 #[command(name = "hexgo-train", version, about = "HexGo AI tools")]
@@ -46,6 +47,10 @@ pub struct TrainArgs {
     /// Retrain and overwrite the checkpoint even if it already exists
     #[arg(long)]
     pub no_skip: bool,
+
+    /// Model storage format to use for saving checkpoints
+    #[arg(long, value_enum, default_value_t = StoreType::BPK)]
+    pub store_type: StoreType,
 }
 
 #[derive(Args)]

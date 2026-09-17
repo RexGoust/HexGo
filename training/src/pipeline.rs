@@ -5,7 +5,10 @@ use hex_go::ai::{
     backend::default_device,
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
-    model::{HexGoModel, ModelConfig, store},
+    model::{
+        HexGoModel, ModelConfig,
+        store::{self, StoreType},
+    },
     neural_mcts::{NeuralConfig, NeuralMcts},
 };
 use rand::seq::SliceRandom;
@@ -44,6 +47,8 @@ pub struct TrainingConfig {
     pub batch_size: usize,
 
     pub no_skip: bool,
+
+    pub store_type: StoreType,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -56,6 +61,7 @@ impl From<TrainArgs> for TrainingConfig {
             epochs: args.epochs,
             batch_size: args.batch_size,
             no_skip: args.no_skip,
+            store_type: args.store_type,
         }
     }
 }
@@ -88,7 +94,7 @@ impl Pipeline {
 
         let model = self.train(model, samples, device);
 
-        Self::save_model(0, model);
+        self.save_model(0, model);
 
         println!("v0: train finished, time consumed: {:?}", t.elapsed());
     }
@@ -98,9 +104,9 @@ impl Pipeline {
         store::load_model(path, device)
     }
 
-    fn save_model(version: usize, model: HexGoModel<Backend>) {
+    fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
         let path = format!("checkpoints/v{}/model", version);
-        store::save_model(path, model, store::StoreType::BPK);
+        store::save_model(path, model, self.config.store_type);
     }
 
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
@@ -264,7 +270,7 @@ impl Pipeline {
             let success = self.evaluate(&candidate, &baseline);
 
             if success {
-                Self::save_model(self.current_version, candidate);
+                self.save_model(self.current_version, candidate);
                 println!(
                     "v{}: train finished, time consumed: {:?}",
                     self.current_version,
