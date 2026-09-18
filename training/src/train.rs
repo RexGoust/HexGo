@@ -20,7 +20,7 @@ pub fn train_step<B: AutodiffBackend>(
     optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
     learning_rate: f64,
 ) -> (HexGoModel<B>, LossValue) {
-    let output = model.forward(input);
+    let output = model.forward(input, None);
 
     let loss = total_loss(
         output.policy.clone(),
@@ -72,7 +72,7 @@ pub fn validation_step<B: AutodiffBackend>(
 ) -> LossValue {
     let (states, policies, values) = samples_to_tensors(samples, device);
 
-    let output = model.forward(states);
+    let output = model.forward(states, None);
 
     let loss = total_loss(
         output.policy.clone(),

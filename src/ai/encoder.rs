@@ -3,15 +3,18 @@ use burn::{
     tensor::{TensorData, backend::Backend},
 };
 
-use crate::game::{
-    Game,
-    board::{BoardGraph, VertexId},
-    player::Player,
-    state::VertexState,
+use crate::{
+    ai::model::gnn::FEATURE_DIM,
+    game::{
+        Game,
+        board::{BoardGraph, VertexId},
+        player::Player,
+        state::VertexState,
+    },
 };
 
 pub const INPUT_SIZE: usize = 88 * 3;
-
+pub const VERTEX_COUNT: usize = 88;
 /// Encodes the game state from the given player's perspective.
 ///
 /// Each vertex is represented by three features:
@@ -50,8 +53,6 @@ pub fn encode_game_mlp(game: &Game, player: Player) -> Vec<f32> {
 
     input
 }
-
-const FEATURE_DIM: usize = 8;
 
 fn encode_vertex_gnn(
     game: &Game,

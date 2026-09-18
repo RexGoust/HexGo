@@ -8,7 +8,7 @@ use burn_store::{BurnpackStore, ModuleSnapshot};
 
 use crate::ai::{
     backend::{Backend, Device, default_device},
-    model::{HexGoModel, MlpModel, MlpModelConfig, ModelConfig},
+    model::{HexGoModel, MlpModel, MlpModelConfig, ModelConfig, gnn::GnnModel},
 };
 
 use crate::{
@@ -50,6 +50,11 @@ impl BurnNeuralNetwork {
                 mlp.load_from(&mut store).expect("failed to load model");
                 HexGoModel::Mlp(mlp)
             }
+            ModelConfig::Gnn(cfg) => {
+                let mut gnn = GnnModel::<Backend>::new(cfg, device);
+                gnn.load_from(&mut store).expect("failed to load model");
+                HexGoModel::Gnn(gnn)
+            }
         };
         Self {
             model,
@@ -77,7 +82,7 @@ impl NeuralNetwork for BurnNeuralNetwork {
         let input_tensor =
             Tensor::<Backend, 2>::from_data(TensorData::new(input, [1, INPUT_SIZE]), &self.device);
 
-        let output = self.model.forward(input_tensor);
+        let output = self.model.forward(input_tensor, None);
 
         let policy_probs = softmax(output.policy, 1);
         let policy_values: Vec<f32> = policy_probs.into_data().to_vec().unwrap();
