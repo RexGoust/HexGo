@@ -7,8 +7,8 @@ use hex_go::ai::{
 };
 use rand::seq::SliceRandom;
 pub fn self_play(args: PlayArgs) {
-    let device = default_device();
-    let model: HexGoModel<Backend> = load_model(args.model, &device);
+    let device = default_infer_device();
+    let model: HexGoModel<InferBackend> = load_model(args.model, &device);
 
     let mut samples = generate_self_play_games(
         args.model_type,

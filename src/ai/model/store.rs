@@ -171,7 +171,7 @@ pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>, stor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::backend::Backend as TestBackend;
+    use crate::ai::backend::InferBackend as TestBackend;
     use crate::ai::encoder::INPUT_SIZE;
     use burn::Tensor;
     use rand::RngExt;
