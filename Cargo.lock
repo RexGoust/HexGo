@@ -15,6 +15,7 @@ dependencies = [
  "js-sys",
  "rand 0.10.2",
  "rand_distr 0.6.0",
+ "ricci",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -5363,6 +5364,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphops"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24fd0ae1070458724d1562d7f3b6acaafe31689426436683ad3bc492d2b63f24"
+dependencies = [
+ "ordered-float 4.6.0",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rand_distr 0.5.1",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "grid"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5550,6 +5564,7 @@ dependencies = [
  "clap-cargo",
  "rand 0.10.2",
  "rayon",
+ "ricci",
  "serde",
  "serde_json",
  "zstd 0.14.0",
@@ -6141,6 +6156,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf36173d4167ed999940f804952e6b08197cae5ad5d572eb4db150ce8ad5d58f"
 
 [[package]]
+name = "lapl"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "110881f6bad26ec69ad896b586176d90b1146a0667b365fe5bae7a07beb2f7d8"
+dependencies = [
+ "ndarray 0.16.1",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6623,6 +6648,7 @@ version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
 dependencies = [
+ "approx",
  "matrixmultiply",
  "num-complex",
  "num-integer",
@@ -8439,6 +8465,20 @@ name = "rgb"
 version = "0.8.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+
+[[package]]
+name = "ricci"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa34fa1aaebe216f36534b02905556d2383f6d037afa40d905850d8e347f3572"
+dependencies = [
+ "burn",
+ "burn-ndarray",
+ "graphops",
+ "lapl",
+ "ndarray 0.16.1",
+ "wass",
+]
 
 [[package]]
 name = "ring"
@@ -10364,6 +10404,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wass"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a47bdfb03b2babc9afdba914344b27797260c56fa717ac7f5da167358b2c1fa"
+dependencies = [
+ "ndarray 0.16.1",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rand_distr 0.5.1",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
