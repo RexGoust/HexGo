@@ -25,8 +25,8 @@ use crate::{
     },
 };
 
-const MODEL: &[u8] = include_bytes!("../../model/mlp/model.bpk");
-const CONFIG: &[u8] = include_bytes!("../../model/mlp/config.json");
+const MODEL: &[u8] = include_bytes!("../../model/gnn/model.bpk");
+const CONFIG: &[u8] = include_bytes!("../../model/gnn/config.json");
 pub struct BurnNeuralNetwork {
     model: HexGoModel<InferBackend>,
     device: InferDevice,

@@ -34,6 +34,8 @@ web-sys = { version = "0.3", features = ["Window", "Performance"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+getrandom-03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
 bevy = {
     version = "0.19.1",
     default-features = false,
