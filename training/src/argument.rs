@@ -46,7 +46,7 @@ pub struct TrainArgs {
     pub start_version: usize,
 
     /// Number of training epochs per pipeline run
-    #[arg(long, default_value_t = 15)]
+    #[arg(long, default_value_t = 10)]
     pub epochs: usize,
 
     /// Number of samples per training batch
@@ -61,12 +61,21 @@ pub struct TrainArgs {
     #[arg(long, value_enum, default_value_t = StoreType::BPK)]
     pub store_type: StoreType,
 
+    /// Force save the checkpoint regardless of improvement
     #[arg(long)]
     pub force_save: bool,
 
     /// Model storage format to use for saving checkpoints
     #[arg(long, value_enum, default_value_t = ModelType::Mlp)]
     pub model_type: ModelType,
+
+    /// Reuse existing self-play data instead of regenerating.
+    #[arg(long)]
+    pub reuse_data: bool,
+
+    /// Skip the evaluation step after training
+    #[arg(long)]
+    pub no_eval: bool,
 }
 
 #[derive(Args)]

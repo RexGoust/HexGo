@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::ai::{encoder::VERTEX_COUNT, model::ModelOutput};
 
 const DEFAULT_HIDDEN_DIM: usize = 128;
+const DROPOUT: f64 = 0.05;
 pub const FEATURE_DIM: usize = 8;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -56,7 +57,7 @@ impl<B: Backend> GnnModel<B> {
             policy_node: LinearConfig::new(config.hidden_dim, 1).init(device),
             policy_pass: LinearConfig::new(config.hidden_dim, 1).init(device),
             value: LinearConfig::new(config.hidden_dim, 1).init(device),
-            dropout: DropoutConfig::new(0.2).init(),
+            dropout: DropoutConfig::new(DROPOUT).init(),
             norm1: LayerNormConfig::new(config.hidden_dim).init(device),
             norm2: LayerNormConfig::new(config.hidden_dim).init(device),
             norm3: LayerNormConfig::new(config.hidden_dim).init(device),

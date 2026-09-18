@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 use burn::{
     optim::{GradientsParams, Optimizer},
-    tensor::{ElementConversion, backend::AutodiffBackend},
+    tensor::{
+        ElementConversion,
+        backend::{AutodiffBackend, Backend},
+    },
 };
 
 use crate::{
@@ -65,42 +68,71 @@ pub fn train_on_samples<B: AutodiffBackend>(
     )
 }
 
-pub fn validation_step<B: AutodiffBackend>(
+pub fn validation_step<B: Backend>(
     model: &HexGoModel<B>,
     samples: &[TrainingSample],
+    batch_size: usize,
     device: &B::Device,
 ) -> LossValue {
-    let (output, target_policy, target_value) = match model {
-        HexGoModel::Mlp(m) => {
-            let (states, policies, values) = samples_to_mlp_tensors(samples, device);
-            (m.forward(states), policies, values)
-        }
-        HexGoModel::Gnn(m) => {
-            let (states, policies, values) = samples_to_gnn_tensors(samples, device);
-            let board_def = BoardDefinition::compact();
-            let adj = adjacency_tensor::<B>(board_def.graph(), device);
-            (m.forward(states, adj), policies, values)
-        }
-    };
+    if samples.is_empty() {
+        return LossValue {
+            policy: 0.0,
+            value: 0.0,
+            total: 0.0,
+            target_entropy: None,
+            pred_entropy: None,
+        };
+    }
 
-    let loss = total_loss(
-        output.policy.clone(),
-        target_policy.clone(),
-        output.value,
-        target_value,
-    );
+    let board_def = BoardDefinition::compact();
+    let adj = adjacency_tensor::<B>(board_def.graph(), device);
 
-    let total = loss.total.into_scalar().elem::<f32>();
-    let policy = loss.policy.into_scalar().elem::<f32>();
-    let value = loss.value.into_scalar().elem::<f32>();
-    let target_entropy = target_entropy(target_policy);
-    let pred_entropy = pred_entropy(output.policy.detach());
+    let mut total_loss_sum = 0.0;
+    let mut policy_loss_sum = 0.0;
+    let mut value_loss_sum = 0.0;
+    let mut target_entropy_sum = 0.0;
+    let mut pred_entropy_sum = 0.0;
+    let total_samples = samples.len() as f32;
+
+    for batch in samples.chunks(batch_size.max(1)) {
+        let batch_len = batch.len() as f32;
+
+        let (output, target_policy, target_value) = match model {
+            HexGoModel::Mlp(m) => {
+                let (states, policies, values) = samples_to_mlp_tensors(batch, device);
+                (m.forward(states), policies, values)
+            }
+            HexGoModel::Gnn(m) => {
+                let (states, policies, values) = samples_to_gnn_tensors(batch, device);
+                (m.forward(states, adj.clone()), policies, values)
+            }
+        };
+
+        let loss = total_loss(
+            output.policy.clone(),
+            target_policy.clone(),
+            output.value,
+            target_value,
+        );
+
+        let total = loss.total.into_scalar().elem::<f32>();
+        let policy = loss.policy.into_scalar().elem::<f32>();
+        let value = loss.value.into_scalar().elem::<f32>();
+        let t_entropy = target_entropy(target_policy);
+        let p_entropy = pred_entropy(output.policy);
+
+        total_loss_sum += total * batch_len;
+        policy_loss_sum += policy * batch_len;
+        value_loss_sum += value * batch_len;
+        target_entropy_sum += t_entropy * batch_len;
+        pred_entropy_sum += p_entropy * batch_len;
+    }
     LossValue {
-        policy,
-        value,
-        total,
-        target_entropy: Some(target_entropy),
-        pred_entropy: Some(pred_entropy),
+        policy: policy_loss_sum / total_samples,
+        value: value_loss_sum / total_samples,
+        total: total_loss_sum / total_samples,
+        target_entropy: Some(target_entropy_sum / total_samples),
+        pred_entropy: Some(pred_entropy_sum / total_samples),
     }
 }
 
@@ -199,7 +231,7 @@ mod tests {
 
         let samples = test_samples();
 
-        let loss = validation_step(&model, &samples, &device);
+        let loss = validation_step(&model, &samples, 256, &device);
 
         assert!(
             loss.total.is_finite(),
@@ -216,7 +248,7 @@ mod tests {
         ));
         let samples = test_samples();
 
-        let loss = validation_step(&model, &samples, &device);
+        let loss = validation_step(&model, &samples, 256, &device);
 
         assert!(loss.total.is_finite());
     }

@@ -58,6 +58,10 @@ pub struct TrainingConfig {
     pub force_save: bool,
 
     pub model_type: ModelType,
+
+    pub reuse_data: bool,
+
+    pub no_eval: bool,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -73,6 +77,8 @@ impl From<TrainArgs> for TrainingConfig {
             store_type: args.store_type,
             force_save: args.force_save,
             model_type: args.model_type,
+            reuse_data: args.reuse_data,
+            no_eval: args.no_eval,
         }
     }
 }
@@ -264,7 +270,13 @@ impl Pipeline {
                 println!("epoch={epoch}, batch={batch_index}, loss={loss}");
             }
 
-            let validation_loss = validation_step(&model, &validation_samples, device);
+            let valid_model = model.valid();
+            let validation_loss = validation_step(
+                &valid_model,
+                &validation_samples,
+                self.config.batch_size,
+                device,
+            );
 
             println!("epoch={epoch}, validation_loss={validation_loss}");
         }
@@ -356,15 +368,24 @@ impl Pipeline {
             let model = self.load_model(self.current_version - 1, device);
 
             let baseline = model.clone();
-            let samples = self.generate_self_play_data(&model);
-
-            println!(
-                "v{}: generated {} samples",
-                self.current_version,
-                samples.len()
+            let path = format!(
+                "data/{}/v{}/self_play.bin.zst",
+                self.config.model_type,
+                self.current_version.saturating_sub(1)
             );
+            let file_exists = Path::new(&path).is_file();
 
-            self.save_samples(self.current_version - 1, &samples);
+            if !self.config.reuse_data || !file_exists {
+                let samples = self.generate_self_play_data(&model);
+
+                println!(
+                    "v{}: generated {} samples",
+                    self.current_version,
+                    samples.len()
+                );
+
+                self.save_samples(self.current_version - 1, &samples);
+            }
 
             let mut samples = self
                 .load_recent_samples(self.current_version.saturating_sub(1), RECENT_GENERATIONS);
@@ -396,7 +417,7 @@ impl Pipeline {
 
             let candidate = self.train(model, samples, device);
 
-            let success = self.evaluate(&candidate, &baseline);
+            let success = self.config.no_eval || self.evaluate(&candidate, &baseline);
 
             if success {
                 self.save_model(self.current_version, candidate);
@@ -408,7 +429,7 @@ impl Pipeline {
                 self.current_version += 1;
             } else {
                 println!(
-                    "v{}: train failed, time consumed: {:?}",
+                    "v{}: candidate rejected (score rate < 55%), baseline retained, time consumed: {:?}",
                     self.current_version,
                     t.elapsed()
                 );
@@ -436,6 +457,8 @@ mod tests {
             store_type: StoreType::BPK,
             force_save: false,
             model_type: ModelType::Mlp,
+            reuse_data: false,
+            no_eval: false,
         })
     }
 
