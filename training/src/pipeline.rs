@@ -6,7 +6,7 @@ use hex_go::ai::{
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
-        HexGoModel, ModelConfig,
+        HexGoModel, MLPModel, MLPModelConfig, ModelConfig,
         store::{self, StoreType},
     },
     neural_mcts::{NeuralConfig, NeuralMcts},
@@ -17,6 +17,7 @@ use crate::{
     argument::TrainArgs,
     dataset::{self, TrainingSample},
     evaluation::{self},
+    model_type::ModelType,
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
 };
@@ -31,7 +32,7 @@ const TRAIN_RATIO: f32 = 0.9;
 
 const MIN_SCORE_RATE: f32 = 0.55;
 
-const CURRENT_TRAIN_MODEL_CONFIG: ModelConfig = ModelConfig { hidden_size: 256 };
+const CURRENT_TRAIN_MODEL_CONFIG: MLPModelConfig = MLPModelConfig { hidden_size: 256 };
 
 const RECENT_GENERATIONS: usize = 4;
 const CURRENT_VERSION_SAMPLE_RATIO: f64 = 0.7;
@@ -54,6 +55,8 @@ pub struct TrainingConfig {
     pub store_type: StoreType,
 
     pub force_save: bool,
+
+    pub model_type: ModelType,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -68,6 +71,7 @@ impl From<TrainArgs> for TrainingConfig {
             no_skip: args.no_skip,
             store_type: args.store_type,
             force_save: args.force_save,
+            model_type: args.model_type,
         }
     }
 }
@@ -96,7 +100,11 @@ impl Pipeline {
         // Shuffle before splitting to avoid keeping positions from the same games together.
         samples.shuffle(&mut rand::rng());
 
-        let model = HexGoModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device);
+        let model = match self.config.model_type {
+            ModelType::Mlp => {
+                HexGoModel::Mlp(MLPModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+            }
+        };
 
         let model = self.train(model, samples, device);
 
@@ -105,18 +113,21 @@ impl Pipeline {
         println!("v0: train finished, time consumed: {:?}", t.elapsed());
     }
 
-    fn load_model(version: usize, device: &Device) -> HexGoModel<Backend> {
-        let path = format!("checkpoints/v{}/model", version);
+    fn load_model(&self, version: usize, device: &Device) -> HexGoModel<Backend> {
+        let path = format!("checkpoints/{}/v{}/model", self.config.model_type, version);
         store::load_model(path, device)
     }
 
     fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
-        let path = format!("checkpoints/v{}/model", version);
+        let path = format!("checkpoints/{}/v{}/model", self.config.model_type, version);
         store::save_model(path, model, self.config.store_type);
     }
 
-    fn save_samples(version: usize, sample: &[TrainingSample]) {
-        let path = format!("data/v{}/self_play.bin.zst", version);
+    fn save_samples(&self, version: usize, sample: &[TrainingSample]) {
+        let path = format!(
+            "data/{}/v{}/self_play.bin.zst",
+            self.config.model_type, version
+        );
 
         let result = dataset::save_samples(&path, sample);
 
@@ -125,8 +136,11 @@ impl Pipeline {
         }
     }
 
-    fn load_samples(version: usize) -> Vec<TrainingSample> {
-        let path = format!("data/v{}/self_play.bin.zst", version);
+    fn load_samples(&self, version: usize) -> Vec<TrainingSample> {
+        let path = format!(
+            "data/{}/v{}/self_play.bin.zst",
+            self.config.model_type, version
+        );
 
         let result = dataset::load_samples(&path);
 
@@ -139,7 +153,7 @@ impl Pipeline {
         }
     }
 
-    pub fn load_recent_samples(version: usize, generations: usize) -> Vec<TrainingSample> {
+    pub fn load_recent_samples(&self, version: usize, generations: usize) -> Vec<TrainingSample> {
         if generations == 0 {
             return Vec::new();
         }
@@ -147,11 +161,11 @@ impl Pipeline {
         let start = version.saturating_sub(generations - 1);
         let mut history_samples = Vec::new();
         for v in start..version {
-            let mut samples = Self::load_samples(v);
+            let mut samples = self.load_samples(v);
             history_samples.append(&mut samples);
         }
 
-        let mut current_samples = Self::load_samples(version);
+        let mut current_samples = self.load_samples(version);
 
         if !current_samples.is_empty() && !history_samples.is_empty() {
             let target_history = ((current_samples.len() as f64)
@@ -271,7 +285,10 @@ impl Pipeline {
         let mut error: Option<(String, std::io::Error)> = None;
 
         for suffix in &suffixes {
-            let path_str = format!("checkpoints/v{}/model.{}", version, suffix);
+            let path_str = format!(
+                "checkpoints/{}/v{}/model.{}",
+                self.config.model_type, version, suffix
+            );
             let path = Path::new(&path_str);
 
             match path.try_exists() {
@@ -324,7 +341,7 @@ impl Pipeline {
 
             println!("v{}: start training...", self.current_version);
 
-            let model = Self::load_model(self.current_version - 1, device);
+            let model = self.load_model(self.current_version - 1, device);
 
             let baseline = model.clone();
             let samples = self.generate_self_play_data(&model);
@@ -335,12 +352,10 @@ impl Pipeline {
                 samples.len()
             );
 
-            Self::save_samples(self.current_version - 1, &samples);
+            self.save_samples(self.current_version - 1, &samples);
 
-            let mut samples = Self::load_recent_samples(
-                self.current_version.saturating_sub(1),
-                RECENT_GENERATIONS,
-            );
+            let mut samples = self
+                .load_recent_samples(self.current_version.saturating_sub(1), RECENT_GENERATIONS);
 
             println!(
                 "v{}: loaded total {} samples",
@@ -350,10 +365,14 @@ impl Pipeline {
 
             samples.shuffle(&mut rand::rng());
 
-            let model = if model.config() == CURRENT_TRAIN_MODEL_CONFIG {
-                model
-            } else {
-                HexGoModel::new(CURRENT_TRAIN_MODEL_CONFIG, device)
+            let model = match self.config.model_type {
+                ModelType::Mlp => {
+                    if model.config() == ModelConfig::Mlp(CURRENT_TRAIN_MODEL_CONFIG) {
+                        model
+                    } else {
+                        HexGoModel::Mlp(MLPModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                    }
+                }
             };
 
             let candidate = self.train(model, samples, device);
@@ -386,14 +405,31 @@ mod tests {
     use super::*;
     use rand::RngExt;
 
+    fn test_pipeline() -> Pipeline {
+        Pipeline::new(TrainingConfig {
+            games: 1,
+            iterations: 1,
+            runs: 1,
+            start_version: 0,
+            epochs: 1,
+            batch_size: 1,
+            no_skip: false,
+            store_type: StoreType::BPK,
+            force_save: false,
+            model_type: ModelType::Mlp,
+        })
+    }
+
     #[test]
     fn load_recent_samples_returns_empty_when_generations_is_zero() {
-        let samples = Pipeline::load_recent_samples(10, 0);
+        let pipeline = test_pipeline();
+        let samples = pipeline.load_recent_samples(10, 0);
         assert!(samples.is_empty());
     }
 
     #[test]
     fn test_load_recent_samples_window() {
+        let pipeline = test_pipeline();
         let base_version: usize = 99000 + rand::rng().random_range(1000..9000);
         let sample_v0 = vec![TrainingSample {
             state: vec![0.0],
@@ -411,30 +447,42 @@ mod tests {
             value: 2.0,
         }];
 
-        Pipeline::save_samples(base_version, &sample_v0);
-        Pipeline::save_samples(base_version + 1, &sample_v1);
-        Pipeline::save_samples(base_version + 2, &sample_v2);
+        pipeline.save_samples(base_version, &sample_v0);
+        pipeline.save_samples(base_version + 1, &sample_v1);
+        pipeline.save_samples(base_version + 2, &sample_v2);
 
         // Load 2 recent generations ending at base_version + 2 -> should load v1 and v2
-        let loaded_2 = Pipeline::load_recent_samples(base_version + 2, 2);
+        let loaded_2 = pipeline.load_recent_samples(base_version + 2, 2);
         assert_eq!(loaded_2.len(), 2);
         assert_eq!(loaded_2[0], sample_v1[0]);
         assert_eq!(loaded_2[1], sample_v2[0]);
 
         // Load 5 recent generations ending at base_version + 1 -> should load v0 and v1
-        let loaded_all = Pipeline::load_recent_samples(base_version + 1, 5);
+        let loaded_all = pipeline.load_recent_samples(base_version + 1, 5);
         assert_eq!(loaded_all.len(), 2);
         assert_eq!(loaded_all[0], sample_v0[0]);
         assert_eq!(loaded_all[1], sample_v1[0]);
 
         // Cleanup
-        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
-        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
-        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 2));
+        let _ = std::fs::remove_dir_all(format!(
+            "data/{}/v{}",
+            pipeline.config.model_type, base_version
+        ));
+        let _ = std::fs::remove_dir_all(format!(
+            "data/{}/v{}",
+            pipeline.config.model_type,
+            base_version + 1
+        ));
+        let _ = std::fs::remove_dir_all(format!(
+            "data/{}/v{}",
+            pipeline.config.model_type,
+            base_version + 2
+        ));
     }
 
     #[test]
     fn test_load_recent_samples_ratio_70_30() {
+        let pipeline = test_pipeline();
         let base_version: usize = 88000 + rand::rng().random_range(1000..9000);
         let sample = TrainingSample {
             state: vec![0.0],
@@ -444,15 +492,22 @@ mod tests {
         let current_samples = vec![sample.clone(); 70];
         let history_samples = vec![sample.clone(); 100];
 
-        Pipeline::save_samples(base_version, &history_samples);
-        Pipeline::save_samples(base_version + 1, &current_samples);
+        pipeline.save_samples(base_version, &history_samples);
+        pipeline.save_samples(base_version + 1, &current_samples);
 
-        let loaded = Pipeline::load_recent_samples(base_version + 1, 2);
+        let loaded = pipeline.load_recent_samples(base_version + 1, 2);
         // Target history: round(70 * 0.3 / 0.7) = 30
         // Total loaded: 70 (v1) + 30 (v0) = 100
         assert_eq!(loaded.len(), 100);
 
-        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version));
-        let _ = std::fs::remove_dir_all(format!("data/v{}", base_version + 1));
+        let _ = std::fs::remove_dir_all(format!(
+            "data/{}/v{}",
+            pipeline.config.model_type, base_version
+        ));
+        let _ = std::fs::remove_dir_all(format!(
+            "data/{}/v{}",
+            pipeline.config.model_type,
+            base_version + 1
+        ));
     }
 }

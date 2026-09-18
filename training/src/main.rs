@@ -3,13 +3,13 @@ mod convert;
 mod dataset;
 mod evaluation;
 mod loss;
+mod model_type;
 mod pipeline;
 mod play;
 mod sampler;
 mod self_play;
 mod tensor;
 mod train;
-
 use clap::Parser;
 
 use crate::{

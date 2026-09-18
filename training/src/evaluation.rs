@@ -4,8 +4,7 @@ use hex_go::{
     ai::{
         backend::default_device,
         burn_neural_network::BurnNeuralNetwork,
-        model::HexGoModel,
-        model::store::*,
+        model::{HexGoModel, store::*},
         neural_mcts::{NeuralConfig, NeuralMcts},
         search::Search,
     },

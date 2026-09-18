@@ -36,7 +36,7 @@ mod tests {
     use burn::Tensor;
     use hex_go::ai::{
         encoder::INPUT_SIZE,
-        model::{ModelConfig, store::StoreType},
+        model::{MLPModelConfig, ModelConfig, store::StoreType},
     };
     use rand::RngExt;
     use std::fs;
@@ -44,8 +44,8 @@ mod tests {
     #[test]
     fn test_convert_model_between_formats() {
         let device = default_device();
-        let config = ModelConfig { hidden_size: 64 };
-        let model = HexGoModel::<Backend>::new(config.clone(), &device);
+        let config = MLPModelConfig { hidden_size: 64 };
+        let model = HexGoModel::<Backend>::new(ModelConfig::Mlp(config.clone()), &device);
 
         let input = Tensor::<Backend, 2>::zeros([1, INPUT_SIZE], &device);
         let expected_output = model.forward(input.clone());
@@ -64,7 +64,7 @@ mod tests {
         // Convert MPK -> BPK
         convert_model(&mpk_path, &bpk_path);
         let bpk_model: HexGoModel<Backend> = load_model(&bpk_path, &device);
-        assert_eq!(bpk_model.config(), config);
+        assert_eq!(bpk_model.config(), ModelConfig::Mlp(config.clone()));
 
         let bpk_output = bpk_model.forward(input.clone());
         let expected_val = expected_output.value.into_data().to_vec::<f32>().unwrap();
@@ -79,7 +79,7 @@ mod tests {
         // Convert BPK -> MPK
         convert_model(&bpk_path, &back_mpk_path);
         let back_model: HexGoModel<Backend> = load_model(&back_mpk_path, &device);
-        assert_eq!(back_model.config(), config);
+        assert_eq!(back_model.config(), ModelConfig::Mlp(config));
 
         let back_output = back_model.forward(input);
         let back_val = back_output.value.into_data().to_vec::<f32>().unwrap();

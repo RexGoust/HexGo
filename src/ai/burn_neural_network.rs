@@ -2,20 +2,18 @@ use std::sync::Arc;
 
 use burn::{
     Tensor,
-    module::Module,
-    record::{HalfPrecisionSettings, NamedMpkBytesRecorder, Recorder},
     tensor::{TensorData, activation::softmax},
 };
+use burn_store::{BurnpackStore, ModuleSnapshot};
 
 use crate::ai::{
     backend::{Backend, Device, default_device},
-    model::ModelConfig,
+    model::{HexGoModel, MLPModel, MLPModelConfig, ModelConfig},
 };
 
 use crate::{
     ai::{
         encoder::{INPUT_SIZE, encode_game},
-        model::HexGoModel,
         neural_network::{Evaluation, NeuralNetwork},
     },
     game::{
@@ -26,8 +24,8 @@ use crate::{
     },
 };
 
-const MODEL: &[u8] = include_bytes!("../../assets/hexgo.mpk");
-
+const MODEL: &[u8] = include_bytes!("../../model/mlp/model.bpk");
+const CONFIG: &[u8] = include_bytes!("../../model/mlp/config.json");
 pub struct BurnNeuralNetwork {
     model: HexGoModel<Backend>,
     device: Device,
@@ -35,15 +33,24 @@ pub struct BurnNeuralNetwork {
 
 impl BurnNeuralNetwork {
     #[allow(clippy::clone_on_copy)]
-    pub fn load(config: ModelConfig) -> Self {
+    pub fn load() -> Self {
         let device: &Device = &default_device();
-
-        let record = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new()
-            .load(MODEL.to_vec(), device)
-            .expect("failed to load model");
-
-        let model = HexGoModel::<Backend>::new(config, device).load_record(record);
-
+        let s = std::str::from_utf8(CONFIG).unwrap();
+        let config = match ModelConfig::parse_with_fallback(s) {
+            Ok(config) => config,
+            Err(_) => {
+                println!("can't parse config, use default config");
+                ModelConfig::Mlp(MLPModelConfig::default())
+            }
+        };
+        let mut store = BurnpackStore::from_static(MODEL).zero_copy(false);
+        let model = match config {
+            ModelConfig::Mlp(cfg) => {
+                let mut mlp = MLPModel::<Backend>::new(cfg, device);
+                mlp.load_from(&mut store).expect("failed to load model");
+                HexGoModel::Mlp(mlp)
+            }
+        };
         Self {
             model,
             // `Device` is a type alias: `FlexDevice` is `Copy`, `CudaDevice` is not.
