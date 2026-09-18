@@ -20,7 +20,10 @@ pub fn train_step<B: AutodiffBackend>(
     optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
     learning_rate: f64,
 ) -> (HexGoModel<B>, LossValue) {
-    let output = model.forward(input, None);
+    let output = match &model {
+        HexGoModel::Mlp(m) => m.forward(input),
+        HexGoModel::Gnn(_) => panic!("GNN training is not supported yet"),
+    };
 
     let loss = total_loss(
         output.policy.clone(),
@@ -72,7 +75,10 @@ pub fn validation_step<B: AutodiffBackend>(
 ) -> LossValue {
     let (states, policies, values) = samples_to_tensors(samples, device);
 
-    let output = model.forward(states, None);
+    let output = match model {
+        HexGoModel::Mlp(m) => m.forward(states),
+        HexGoModel::Gnn(_) => panic!("GNN validation is not supported yet"),
+    };
 
     let loss = total_loss(
         output.policy.clone(),

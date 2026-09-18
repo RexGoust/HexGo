@@ -76,14 +76,11 @@ impl<B: Backend> GnnModel<B> {
         let h = self.dropout.forward(h);
 
         let node_logits = self.policy_node.forward(h.clone()); // [N, 1]
-        let node_logits = node_logits.squeeze::<1>(); // [N] = [88]
         let global = h.mean_dim(0); // [1, hidden_dim]
 
         let pass_logit = self.policy_pass.forward(global.clone()); // [1, 1]
-        let pass_logit = pass_logit.squeeze::<1>();
 
-        let policy = Tensor::cat(vec![node_logits, pass_logit], 0); // [89]
-        let policy = policy.reshape([1, 89]);
+        let policy = Tensor::cat(vec![node_logits, pass_logit], 0).transpose(); // [1, N]
 
         let value = self.value.forward(global).tanh(); // [1, 1]
 
@@ -92,5 +89,45 @@ impl<B: Backend> GnnModel<B> {
 
     pub fn config(&self) -> GnnModelConfig {
         self.config.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::backend::Backend;
+
+    #[test]
+    fn gnn_forward_produces_expected_output_shapes() {
+        let device = Default::default();
+        let config = GnnModelConfig::default();
+        let model = GnnModel::<Backend>::new(config, &device);
+
+        let x = Tensor::<Backend, 2>::zeros([88, FEATURE_DIM], &device);
+        let adj = Tensor::<Backend, 2>::zeros([88, 88], &device);
+
+        let output = model.forward(x, adj);
+
+        assert_eq!(output.policy.dims(), [1, 89]);
+        assert_eq!(output.value.dims(), [1, 1]);
+    }
+
+    #[test]
+    fn gnn_forward_handles_arbitrary_vertex_count() {
+        let device = Default::default();
+        let config = GnnModelConfig {
+            feature_dim: FEATURE_DIM,
+            hidden_dim: 32,
+            num_vertices: 4,
+        };
+        let model = GnnModel::<Backend>::new(config, &device);
+
+        let x = Tensor::<Backend, 2>::zeros([4, FEATURE_DIM], &device);
+        let adj = Tensor::<Backend, 2>::zeros([4, 4], &device);
+
+        let output = model.forward(x, adj);
+
+        assert_eq!(output.policy.dims(), [1, 5]);
+        assert_eq!(output.value.dims(), [1, 1]);
     }
 }

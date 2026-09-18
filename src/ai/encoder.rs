@@ -81,12 +81,16 @@ fn encode_vertex_gnn(
 
     let is_last_move = game.is_last_move(vertex) as i32 as f32;
 
-    let neighbor_count: f32 = game
-        .board()
-        .get_neighbors(vertex)
-        .map(|s| s.len())
-        .unwrap_or(0) as f32
-        / game.board().max_degree() as f32;
+    let max_deg = game.board().max_degree();
+    let neighbor_count: f32 = if max_deg > 0 {
+        game.board()
+            .get_neighbors(vertex)
+            .map(|s| s.len())
+            .unwrap_or(0) as f32
+            / max_deg as f32
+    } else {
+        0.0
+    };
 
     let moves = (1.0 + game.move_number() as f32).ln();
 
@@ -177,5 +181,45 @@ mod tests {
 
         let input = encode_game_mlp(&game, Player::White);
         assert_eq!(&input[0..3], &[0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn encode_game_gnn_has_expected_shape() {
+        let game = test_game();
+        let features = encode_game_gnn(&game, Player::Black);
+
+        assert_eq!(features.len(), 4);
+        for f in &features {
+            assert_eq!(f.len(), FEATURE_DIM);
+            for val in f {
+                assert!(!val.is_nan());
+            }
+        }
+    }
+
+    #[test]
+    fn encode_game_gnn_handles_zero_max_degree_without_nan() {
+        let board = BoardGraph::from_edges(1, []).unwrap();
+        let game = Game::new(board);
+        let features = encode_game_gnn(&game, Player::Black);
+
+        assert_eq!(features.len(), 1);
+        for val in &features[0] {
+            assert!(!val.is_nan());
+        }
+        assert_eq!(features[0][6], 0.0);
+    }
+
+    #[test]
+    fn encode_game_gnn_tensors_have_expected_dims() {
+        use crate::ai::backend::Backend;
+
+        let game = test_game();
+        let device = Default::default();
+        let x = encode_game_gnn_tensor::<Backend>(&game, Player::Black, &device);
+        assert_eq!(x.dims(), [4, FEATURE_DIM]);
+
+        let adj = adjacency_tensor::<Backend>(game.board(), &device);
+        assert_eq!(adj.dims(), [4, 4]);
     }
 }

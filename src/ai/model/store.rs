@@ -183,7 +183,10 @@ mod tests {
             HexGoModel::<TestBackend>::new(ModelConfig::Mlp(MlpModelConfig::default()), &device);
 
         let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
-        let expected_output = model.forward(input.clone(), None);
+        let expected_output = match &model {
+            HexGoModel::Mlp(m) => m.forward(input.clone()),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
 
         let temp_dir =
             std::env::temp_dir().join(format!("hexgo-test-store-{}", rand::rng().random::<u64>()));
@@ -192,7 +195,10 @@ mod tests {
         save_model(&model_path, model, StoreType::MPK);
         let loaded_model = load_model::<TestBackend>(&model_path, &device);
 
-        let actual_output = loaded_model.forward(input, None);
+        let actual_output = match &loaded_model {
+            HexGoModel::Mlp(m) => m.forward(input),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
 
         let expected_val = expected_output.value.into_data().to_vec::<f32>().unwrap();
         let actual_val = actual_output.value.into_data().to_vec::<f32>().unwrap();
@@ -244,7 +250,10 @@ mod tests {
         let model = HexGoModel::<TestBackend>::new(ModelConfig::Mlp(config.clone()), &device);
 
         let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
-        let expected_output = model.forward(input.clone(), None);
+        let expected_output = match &model {
+            HexGoModel::Mlp(m) => m.forward(input.clone()),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
 
         let temp_dir = std::env::temp_dir().join(format!(
             "hexgo-test-store-bpk-{}",
@@ -257,7 +266,10 @@ mod tests {
 
         assert_eq!(loaded_model.config(), ModelConfig::Mlp(config));
 
-        let actual_output = loaded_model.forward(input, None);
+        let actual_output = match &loaded_model {
+            HexGoModel::Mlp(m) => m.forward(input),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
 
         let expected_val = expected_output.value.into_data().to_vec::<f32>().unwrap();
         let actual_val = actual_output.value.into_data().to_vec::<f32>().unwrap();

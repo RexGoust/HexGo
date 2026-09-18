@@ -56,11 +56,4 @@ impl<B: Backend> HexGoModel<B> {
             Self::Gnn(m) => ModelConfig::Gnn(m.config()),
         }
     }
-
-    pub fn forward(&self, input: Tensor<B, 2>, adj: Option<Tensor<B, 2>>) -> ModelOutput<B> {
-        match self {
-            Self::Mlp(m) => m.forward(input),
-            Self::Gnn(m) => m.forward(input, adj.unwrap()),
-        }
-    }
 }

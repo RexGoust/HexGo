@@ -409,7 +409,7 @@ impl Game {
         }
 
         self.current_player = self.current_player.opponent();
-
+        self.last_move = None;
         Ok(())
     }
 
@@ -1186,6 +1186,17 @@ mod test {
         assert!(game.pass_turn().is_ok());
 
         assert_eq!(game.current_player(), Player::White);
+    }
+
+    #[test]
+    fn test_pass_resets_last_move() {
+        let mut game = create_test_game();
+        game.play_move(VertexId::new(0)).unwrap();
+        assert!(game.is_last_move(VertexId::new(0)));
+
+        game.pass_turn().unwrap();
+        assert!(!game.is_last_move(VertexId::new(0)));
+        assert_eq!(game.last_move, None);
     }
 
     #[test]
