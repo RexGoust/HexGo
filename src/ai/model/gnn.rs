@@ -11,7 +11,7 @@ use crate::ai::{encoder::VERTEX_COUNT, model::ModelOutput};
 
 const DEFAULT_HIDDEN_DIM: usize = 128;
 const DROPOUT: f64 = 0.05;
-pub const FEATURE_DIM: usize = 8;
+pub const FEATURE_DIM: usize = 9;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct GnnModelConfig {
@@ -36,9 +36,12 @@ pub struct GnnModel<B: Backend> {
     conv2: GCNConv<B>,
     conv3: GCNConv<B>,
 
-    policy_node: Linear<B>,
+    policy_node1: Linear<B>,
+    policy_node2: Linear<B>,
+
     policy_pass: Linear<B>,
-    value: Linear<B>,
+    value1: Linear<B>,
+    value2: Linear<B>,
 
     dropout: Dropout,
     norm1: LayerNorm<B>,
@@ -49,18 +52,28 @@ pub struct GnnModel<B: Backend> {
 
 impl<B: Backend> GnnModel<B> {
     pub fn new(config: GnnModelConfig, device: &B::Device) -> Self {
+        let hidden = config.hidden_dim; // 128
+        let val_hidden = config.hidden_dim / 2; // 64
+
         Self {
             config: config.clone(),
-            conv1: GCNConv::init(config.feature_dim, config.hidden_dim, device),
-            conv2: GCNConv::init(config.hidden_dim, config.hidden_dim, device),
-            conv3: GCNConv::init(config.hidden_dim, config.hidden_dim, device),
-            policy_node: LinearConfig::new(config.hidden_dim, 1).init(device),
-            policy_pass: LinearConfig::new(config.hidden_dim, 1).init(device),
-            value: LinearConfig::new(config.hidden_dim, 1).init(device),
+            conv1: GCNConv::init(config.feature_dim, hidden, device),
+            conv2: GCNConv::init(hidden, hidden, device),
+            conv3: GCNConv::init(hidden, hidden, device),
+
+            // 256 -> 64 -> 1
+            policy_node1: LinearConfig::new(hidden * 2, val_hidden).init(device),
+            policy_node2: LinearConfig::new(val_hidden, 1).init(device),
+            policy_pass: LinearConfig::new(hidden, 1).init(device),
+
+            // 128 -> 64 -> 1
+            value1: LinearConfig::new(hidden, val_hidden).init(device),
+            value2: LinearConfig::new(val_hidden, 1).init(device),
+
             dropout: DropoutConfig::new(DROPOUT).init(),
-            norm1: LayerNormConfig::new(config.hidden_dim).init(device),
-            norm2: LayerNormConfig::new(config.hidden_dim).init(device),
-            norm3: LayerNormConfig::new(config.hidden_dim).init(device),
+            norm1: LayerNormConfig::new(hidden).init(device),
+            norm2: LayerNormConfig::new(hidden).init(device),
+            norm3: LayerNormConfig::new(hidden).init(device),
         }
     }
 
@@ -117,18 +130,27 @@ impl<B: Backend> GnnModel<B> {
         let h = Relu::new().forward(h);
         let h = self.dropout.forward(h);
 
+        let global_3d = h.clone().mean_dim(1);
+        let global_vec = global_3d
+            .clone()
+            .reshape([batch_size, self.config.hidden_dim]);
+
+        let global_expanded = global_3d.repeat_dim(1, num_nodes);
+        let combined_node_features = Tensor::cat(vec![h, global_expanded], 2);
+
+        let p = self.policy_node1.forward(combined_node_features);
+        let p = Relu::new().forward(p);
         let node_logits = self
-            .policy_node
-            .forward(h.clone())
-            .reshape([batch_size, num_nodes]); // [1, N]
+            .policy_node2
+            .forward(p)
+            .reshape([batch_size, num_nodes]);
 
-        let global = h.mean_dim(1).reshape([batch_size, self.config.hidden_dim]);
+        let pass_logit = self.policy_pass.forward(global_vec.clone());
+        let policy = Tensor::cat(vec![node_logits, pass_logit], 1);
 
-        let pass_logit = self.policy_pass.forward(global.clone()); // [1, 1]
-
-        let policy = Tensor::cat(vec![node_logits, pass_logit], 1); // [1, N]
-
-        let value = self.value.forward(global).tanh(); // [1, 1]
+        let v = self.value1.forward(global_vec);
+        let v = Relu::new().forward(v);
+        let value = self.value2.forward(v).tanh();
 
         ModelOutput { policy, value }
     }

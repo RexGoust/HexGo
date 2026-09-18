@@ -73,8 +73,14 @@ fn encode_vertex_gnn(
         None => 0.0,
     };
 
-    let is_in_atari = if is_player + is_opponent > 0.0 {
-        matches!(liberty_count, Some(1)) as i32 as f32
+    let is_atari = matches!(liberty_count, Some(1));
+    let is_my_atari = if is_player > 0.0 && is_atari {
+        1.0
+    } else {
+        0.0
+    };
+    let is_opp_atari = if is_opponent > 0.0 && is_atari {
+        1.0
     } else {
         0.0
     };
@@ -100,10 +106,11 @@ fn encode_vertex_gnn(
     f[1] = is_opponent;
     f[2] = is_empty;
     f[3] = group_liberties;
-    f[4] = is_in_atari;
-    f[5] = is_last_move;
-    f[6] = neighbor_count;
-    f[7] = moves;
+    f[4] = is_my_atari;
+    f[5] = is_opp_atari;
+    f[6] = is_last_move;
+    f[7] = neighbor_count;
+    f[8] = moves;
     f
 }
 
