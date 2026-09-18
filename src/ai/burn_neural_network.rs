@@ -90,7 +90,8 @@ impl NeuralNetwork for BurnNeuralNetwork {
                 m.forward(input_tensor)
             }
             HexGoModel::Gnn(m) => {
-                let x = encode_game_gnn_tensor::<Backend>(game, player, &self.device);
+                let x =
+                    encode_game_gnn_tensor::<Backend>(game, player, &self.device).unsqueeze::<3>();
                 let adj = adjacency_tensor::<Backend>(game.board(), &self.device);
                 m.forward(x, adj)
             }

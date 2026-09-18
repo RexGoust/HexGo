@@ -7,7 +7,7 @@ use hex_go::{
 
 use crate::dataset::TrainingSample;
 
-pub fn samples_to_tensors<B: Backend>(
+pub fn samples_to_mlp_tensors<B: Backend>(
     samples: &[TrainingSample],
     device: &B::Device,
 ) -> (Tensor<B, 2>, Tensor<B, 2>, Tensor<B, 2>) {
@@ -96,7 +96,7 @@ mod test {
 
         let device = Default::default();
 
-        let (state, policy, value) = samples_to_tensors::<Flex>(&samples, &device);
+        let (state, policy, value) = samples_to_mlp_tensors::<Flex>(&samples, &device);
 
         assert_eq!(state.dims(), [2, 264]);
         assert_eq!(policy.dims(), [2, ACTION_SIZE]);

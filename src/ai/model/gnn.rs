@@ -60,27 +60,61 @@ impl<B: Backend> GnnModel<B> {
         }
     }
 
-    pub fn forward(&self, x: Tensor<B, 2>, adj: Tensor<B, 2>) -> ModelOutput<B> {
+    fn conv_forward(&self, conv: &GCNConv<B>, x: Tensor<B, 3>, adj: Tensor<B, 2>) -> Tensor<B, 3> {
+        let [batch_size, num_nodes, _] = x.dims();
+
+        let projected = conv.linear().forward(x);
+        let [_, _, d_out] = projected.dims();
+
+        let (projected_features, bias_val) = match &conv.linear().bias {
+            Some(bias) => {
+                let b = bias.val().reshape([1, 1, d_out]);
+                (projected - b.clone(), Some(b))
+            }
+            None => (projected, None),
+        };
+
+        let p = projected_features
+            .swap_dims(0, 1)
+            .reshape([num_nodes, batch_size * d_out]);
+        let aggregated = adj
+            .matmul(p)
+            .reshape([num_nodes, batch_size, d_out])
+            .swap_dims(0, 1);
+
+        match bias_val {
+            Some(b) => aggregated + b,
+            None => aggregated,
+        }
+    }
+
+    pub fn forward(&self, x: Tensor<B, 3>, adj: Tensor<B, 2>) -> ModelOutput<B> {
+        let [batch_size, num_nodes, _] = x.dims();
+
         // GCN + Norm + ReLU + Dropout
-        let h = self.conv1.forward(x, adj.clone());
+        let h = self.conv_forward(&self.conv1, x, adj.clone());
         let h = self.norm1.forward(h);
         let h = Relu::new().forward(h);
         let h = self.dropout.forward(h);
 
         // GCN + Residual + Norm + ReLU + Dropout
         let h_in = h.clone();
-        let h = self.conv2.forward(h, adj);
+        let h = self.conv_forward(&self.conv2, h, adj);
         let h = h + h_in;
         let h = self.norm2.forward(h);
         let h = Relu::new().forward(h);
         let h = self.dropout.forward(h);
 
-        let node_logits = self.policy_node.forward(h.clone()); // [N, 1]
-        let global = h.mean_dim(0); // [1, hidden_dim]
+        let node_logits = self
+            .policy_node
+            .forward(h.clone())
+            .reshape([batch_size, num_nodes]); // [1, N]
+
+        let global = h.mean_dim(1).reshape([batch_size, self.config.hidden_dim]);
 
         let pass_logit = self.policy_pass.forward(global.clone()); // [1, 1]
 
-        let policy = Tensor::cat(vec![node_logits, pass_logit], 0).transpose(); // [1, N]
+        let policy = Tensor::cat(vec![node_logits, pass_logit], 1); // [1, N]
 
         let value = self.value.forward(global).tanh(); // [1, 1]
 
@@ -103,7 +137,7 @@ mod tests {
         let config = GnnModelConfig::default();
         let model = GnnModel::<Backend>::new(config, &device);
 
-        let x = Tensor::<Backend, 2>::zeros([88, FEATURE_DIM], &device);
+        let x = Tensor::<Backend, 2>::zeros([88, FEATURE_DIM], &device).unsqueeze::<3>();
         let adj = Tensor::<Backend, 2>::zeros([88, 88], &device);
 
         let output = model.forward(x, adj);
@@ -122,7 +156,7 @@ mod tests {
         };
         let model = GnnModel::<Backend>::new(config, &device);
 
-        let x = Tensor::<Backend, 2>::zeros([4, FEATURE_DIM], &device);
+        let x = Tensor::<Backend, 2>::zeros([4, FEATURE_DIM], &device).unsqueeze::<3>();
         let adj = Tensor::<Backend, 2>::zeros([4, 4], &device);
 
         let output = model.forward(x, adj);

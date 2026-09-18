@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use burn::{
-    Tensor,
     optim::{GradientsParams, Optimizer},
     tensor::{ElementConversion, backend::AutodiffBackend},
 };
@@ -8,21 +7,31 @@ use burn::{
 use crate::{
     dataset::TrainingSample,
     loss::{LossValue, pred_entropy, target_entropy, total_loss},
-    tensor::samples_to_tensors,
+    tensor::{samples_to_gnn_tensors, samples_to_mlp_tensors},
 };
-use hex_go::ai::model::HexGoModel;
+use hex_go::{
+    ai::{encoder::adjacency_tensor, model::HexGoModel},
+    board_layout::BoardDefinition,
+};
 
-pub fn train_step<B: AutodiffBackend>(
+pub fn train_on_samples<B: AutodiffBackend>(
     model: HexGoModel<B>,
-    input: Tensor<B, 2>,
-    target_policy: Tensor<B, 2>,
-    target_value: Tensor<B, 2>,
     optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
+    samples: &[TrainingSample],
+    device: &B::Device,
     learning_rate: f64,
 ) -> (HexGoModel<B>, LossValue) {
-    let output = match &model {
-        HexGoModel::Mlp(m) => m.forward(input),
-        HexGoModel::Gnn(_) => panic!("GNN training is not supported yet"),
+    let (output, target_policy, target_value) = match &model {
+        HexGoModel::Mlp(m) => {
+            let (state, policy, value) = samples_to_mlp_tensors::<B>(samples, device);
+            (m.forward(state), policy, value)
+        }
+        HexGoModel::Gnn(m) => {
+            let (state, policy, value) = samples_to_gnn_tensors::<B>(samples, device);
+            let board_def = BoardDefinition::compact();
+            let adj = adjacency_tensor::<B>(board_def.graph(), device);
+            (m.forward(state, adj), policy, value)
+        }
     };
 
     let loss = total_loss(
@@ -56,41 +65,35 @@ pub fn train_step<B: AutodiffBackend>(
     )
 }
 
-pub fn train_on_samples<B: AutodiffBackend>(
-    model: HexGoModel<B>,
-    optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
-    samples: &[TrainingSample],
-    device: &B::Device,
-    learning_rate: f64,
-) -> (HexGoModel<B>, LossValue) {
-    let (state, policy, value) = samples_to_tensors::<B>(samples, device);
-
-    train_step(model, state, policy, value, optimizer, learning_rate)
-}
-
 pub fn validation_step<B: AutodiffBackend>(
     model: &HexGoModel<B>,
     samples: &[TrainingSample],
     device: &B::Device,
 ) -> LossValue {
-    let (states, policies, values) = samples_to_tensors(samples, device);
-
-    let output = match model {
-        HexGoModel::Mlp(m) => m.forward(states),
-        HexGoModel::Gnn(_) => panic!("GNN validation is not supported yet"),
+    let (output, target_policy, target_value) = match model {
+        HexGoModel::Mlp(m) => {
+            let (states, policies, values) = samples_to_mlp_tensors(samples, device);
+            (m.forward(states), policies, values)
+        }
+        HexGoModel::Gnn(m) => {
+            let (states, policies, values) = samples_to_gnn_tensors(samples, device);
+            let board_def = BoardDefinition::compact();
+            let adj = adjacency_tensor::<B>(board_def.graph(), device);
+            (m.forward(states, adj), policies, values)
+        }
     };
 
     let loss = total_loss(
         output.policy.clone(),
-        policies.clone(),
+        target_policy.clone(),
         output.value,
-        values,
+        target_value,
     );
 
     let total = loss.total.into_scalar().elem::<f32>();
     let policy = loss.policy.into_scalar().elem::<f32>();
     let value = loss.value.into_scalar().elem::<f32>();
-    let target_entropy = target_entropy(policies);
+    let target_entropy = target_entropy(target_policy);
     let pred_entropy = pred_entropy(output.policy.detach());
     LossValue {
         policy,
@@ -104,7 +107,7 @@ pub fn validation_step<B: AutodiffBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dataset::TrainingSample, tensor::samples_to_tensors};
+    use crate::dataset::TrainingSample;
     use burn::{
         backend::{Autodiff, Flex},
         optim::AdamWConfig,
@@ -128,8 +131,6 @@ mod tests {
             value: 1.0,
         }];
 
-        let (input, target_policy, target_value) = samples_to_tensors::<Backend>(&samples, &device);
-
         let mut model =
             HexGoModel::Mlp(MlpModel::<Backend>::new(MlpModelConfig::default(), &device));
         let mut optimizer = AdamWConfig::new().with_weight_decay(1e-4).init();
@@ -138,14 +139,8 @@ mod tests {
         let mut final_loss = 0.0;
 
         for step in 0..100 {
-            let (new_model, loss) = train_step(
-                model,
-                input.clone(),
-                target_policy.clone(),
-                target_value.clone(),
-                &mut optimizer,
-                1e-3,
-            );
+            let (new_model, loss) =
+                train_on_samples(model, &mut optimizer, &samples, &device, 1e-3);
 
             model = new_model;
 
