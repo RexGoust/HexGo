@@ -6,7 +6,7 @@ use hex_go::ai::{
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
-        HexGoModel, MLPModel, MLPModelConfig, ModelConfig,
+        HexGoModel, MlpModel, MlpModelConfig, ModelConfig,
         store::{self, StoreType},
     },
     neural_mcts::{NeuralConfig, NeuralMcts},
@@ -32,7 +32,7 @@ const TRAIN_RATIO: f32 = 0.9;
 
 const MIN_SCORE_RATE: f32 = 0.55;
 
-const CURRENT_TRAIN_MODEL_CONFIG: MLPModelConfig = MLPModelConfig { hidden_size: 256 };
+const CURRENT_TRAIN_MODEL_CONFIG: MlpModelConfig = MlpModelConfig { hidden_size: 256 };
 
 const RECENT_GENERATIONS: usize = 4;
 const CURRENT_VERSION_SAMPLE_RATIO: f64 = 0.7;
@@ -102,7 +102,7 @@ impl Pipeline {
 
         let model = match self.config.model_type {
             ModelType::Mlp => {
-                HexGoModel::Mlp(MLPModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                HexGoModel::Mlp(MlpModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
             }
         };
 
@@ -370,7 +370,7 @@ impl Pipeline {
                     if model.config() == ModelConfig::Mlp(CURRENT_TRAIN_MODEL_CONFIG) {
                         model
                     } else {
-                        HexGoModel::Mlp(MLPModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                        HexGoModel::Mlp(MlpModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
                     }
                 }
             };

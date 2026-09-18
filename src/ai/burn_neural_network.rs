@@ -8,7 +8,7 @@ use burn_store::{BurnpackStore, ModuleSnapshot};
 
 use crate::ai::{
     backend::{Backend, Device, default_device},
-    model::{HexGoModel, MLPModel, MLPModelConfig, ModelConfig},
+    model::{HexGoModel, MlpModel, MlpModelConfig, ModelConfig},
 };
 
 use crate::{
@@ -40,13 +40,13 @@ impl BurnNeuralNetwork {
             Ok(config) => config,
             Err(_) => {
                 println!("can't parse config, use default config");
-                ModelConfig::Mlp(MLPModelConfig::default())
+                ModelConfig::Mlp(MlpModelConfig::default())
             }
         };
         let mut store = BurnpackStore::from_static(MODEL).zero_copy(false);
         let model = match config {
             ModelConfig::Mlp(cfg) => {
-                let mut mlp = MLPModel::<Backend>::new(cfg, device);
+                let mut mlp = MlpModel::<Backend>::new(cfg, device);
                 mlp.load_from(&mut store).expect("failed to load model");
                 HexGoModel::Mlp(mlp)
             }

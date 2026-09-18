@@ -11,11 +11,11 @@ use crate::ai::model::{ModelOutput, POLICY_SIZE};
 const DEFAULT_HIDDEN_SIZE: usize = 128;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct MLPModelConfig {
+pub struct MlpModelConfig {
     pub hidden_size: usize,
 }
 
-impl Default for MLPModelConfig {
+impl Default for MlpModelConfig {
     fn default() -> Self {
         Self {
             hidden_size: DEFAULT_HIDDEN_SIZE,
@@ -24,16 +24,16 @@ impl Default for MLPModelConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct MLPModel<B: Backend> {
+pub struct MlpModel<B: Backend> {
     fc1: Linear<B>,
     fc2: Linear<B>,
     policy: Linear<B>,
     value: Linear<B>,
-    config: MLPModelConfig,
+    config: MlpModelConfig,
 }
 
-impl<B: Backend> MLPModel<B> {
-    pub fn new(config: MLPModelConfig, device: &B::Device) -> Self {
+impl<B: Backend> MlpModel<B> {
+    pub fn new(config: MlpModelConfig, device: &B::Device) -> Self {
         Self {
             fc1: LinearConfig::new(INPUT_SIZE, config.hidden_size).init(device),
             fc2: LinearConfig::new(config.hidden_size, config.hidden_size).init(device),
@@ -43,7 +43,7 @@ impl<B: Backend> MLPModel<B> {
         }
     }
 
-    pub fn config(&self) -> MLPModelConfig {
+    pub fn config(&self) -> MlpModelConfig {
         self.config.clone()
     }
 

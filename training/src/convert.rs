@@ -36,7 +36,7 @@ mod tests {
     use burn::Tensor;
     use hex_go::ai::{
         encoder::INPUT_SIZE,
-        model::{MLPModelConfig, ModelConfig, store::StoreType},
+        model::{MlpModelConfig, ModelConfig, store::StoreType},
     };
     use rand::RngExt;
     use std::fs;
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn test_convert_model_between_formats() {
         let device = default_device();
-        let config = MLPModelConfig { hidden_size: 64 };
+        let config = MlpModelConfig { hidden_size: 64 };
         let model = HexGoModel::<Backend>::new(ModelConfig::Mlp(config.clone()), &device);
 
         let input = Tensor::<Backend, 2>::zeros([1, INPUT_SIZE], &device);

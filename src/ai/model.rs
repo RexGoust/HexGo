@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 
 pub mod mlp;
 pub mod store;
-pub use mlp::{MLPModel, MLPModelConfig};
+pub use mlp::{MlpModel, MlpModelConfig};
 
 const POLICY_SIZE: usize = ACTION_SIZE;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModelConfig {
-    Mlp(MLPModelConfig),
+    Mlp(MlpModelConfig),
 }
 
 impl ModelConfig {
@@ -20,7 +20,7 @@ impl ModelConfig {
             return Ok(config);
         }
 
-        let old_mlp = serde_json::from_str::<MLPModelConfig>(json_str)?;
+        let old_mlp = serde_json::from_str::<MlpModelConfig>(json_str)?;
         Ok(ModelConfig::Mlp(old_mlp))
     }
 }
@@ -32,13 +32,13 @@ pub struct ModelOutput<B: Backend> {
 
 #[derive(Module, Debug)]
 pub enum HexGoModel<B: Backend> {
-    Mlp(MLPModel<B>),
+    Mlp(MlpModel<B>),
 }
 
 impl<B: Backend> HexGoModel<B> {
     pub fn new(config: ModelConfig, device: &B::Device) -> Self {
         match config {
-            ModelConfig::Mlp(cfg) => Self::Mlp(MLPModel::new(cfg, device)),
+            ModelConfig::Mlp(cfg) => Self::Mlp(MlpModel::new(cfg, device)),
         }
     }
 
