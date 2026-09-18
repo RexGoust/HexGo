@@ -33,6 +33,7 @@ impl Default for GnnModelConfig {
 pub struct GnnModel<B: Backend> {
     conv1: GCNConv<B>,
     conv2: GCNConv<B>,
+    conv3: GCNConv<B>,
 
     policy_node: Linear<B>,
     policy_pass: Linear<B>,
@@ -41,7 +42,7 @@ pub struct GnnModel<B: Backend> {
     dropout: Dropout,
     norm1: LayerNorm<B>,
     norm2: LayerNorm<B>,
-
+    norm3: LayerNorm<B>,
     config: GnnModelConfig,
 }
 
@@ -51,12 +52,14 @@ impl<B: Backend> GnnModel<B> {
             config: config.clone(),
             conv1: GCNConv::init(config.feature_dim, config.hidden_dim, device),
             conv2: GCNConv::init(config.hidden_dim, config.hidden_dim, device),
+            conv3: GCNConv::init(config.hidden_dim, config.hidden_dim, device),
             policy_node: LinearConfig::new(config.hidden_dim, 1).init(device),
             policy_pass: LinearConfig::new(config.hidden_dim, 1).init(device),
             value: LinearConfig::new(config.hidden_dim, 1).init(device),
             dropout: DropoutConfig::new(0.2).init(),
             norm1: LayerNormConfig::new(config.hidden_dim).init(device),
             norm2: LayerNormConfig::new(config.hidden_dim).init(device),
+            norm3: LayerNormConfig::new(config.hidden_dim).init(device),
         }
     }
 
@@ -99,9 +102,17 @@ impl<B: Backend> GnnModel<B> {
 
         // GCN + Residual + Norm + ReLU + Dropout
         let h_in = h.clone();
-        let h = self.conv_forward(&self.conv2, h, adj);
+        let h = self.conv_forward(&self.conv2, h, adj.clone());
         let h = h + h_in;
         let h = self.norm2.forward(h);
+        let h = Relu::new().forward(h);
+        let h = self.dropout.forward(h);
+
+        // GCN + Residual + Norm + ReLU + Dropout
+        let h_in = h.clone();
+        let h = self.conv_forward(&self.conv3, h, adj);
+        let h = h + h_in;
+        let h = self.norm3.forward(h);
         let h = Relu::new().forward(h);
         let h = self.dropout.forward(h);
 
