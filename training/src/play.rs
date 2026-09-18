@@ -10,13 +10,17 @@ pub fn self_play(args: PlayArgs) {
     let device = default_device();
     let model: HexGoModel<Backend> = load_model(args.model, &device);
 
-    let mut samples =
-        generate_self_play_games(args.games as usize, args.iterations as usize, || {
+    let mut samples = generate_self_play_games(
+        args.model_type,
+        args.games as usize,
+        args.iterations as usize,
+        || {
             NeuralMcts::new(
                 BurnNeuralNetwork::from_model(&model),
                 NeuralConfig { add_noise: true },
             )
-        });
+        },
+    );
 
     samples.shuffle(&mut rand::rng());
 

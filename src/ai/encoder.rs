@@ -107,12 +107,12 @@ fn encode_vertex_gnn(
     f
 }
 
-pub fn encode_game_gnn(game: &Game, player: Player) -> Vec<[f32; FEATURE_DIM]> {
+pub fn encode_game_gnn(game: &Game, player: Player) -> Vec<f32> {
     let vertex_count = game.board().vertex_count();
     let opponent = player.opponent();
 
     (0..vertex_count)
-        .map(|index| {
+        .flat_map(|index| {
             let vertex = crate::game::board::VertexId::new(index);
             encode_vertex_gnn(game, player, opponent, vertex)
         })
@@ -125,11 +125,9 @@ pub fn encode_game_gnn_tensor<B: Backend>(
     device: &B::Device,
 ) -> Tensor<B, 2> {
     let data = encode_game_gnn(game, player);
-    let n = data.len();
+    let n = data.len() / FEATURE_DIM;
 
-    let flat: Vec<f32> = data.into_iter().flatten().collect();
-
-    Tensor::<B, 2>::from_data(TensorData::new(flat, [n, FEATURE_DIM]), device)
+    Tensor::<B, 2>::from_data(TensorData::new(data, [n, FEATURE_DIM]), device)
 }
 
 pub fn adjacency_tensor<B: Backend>(graph: &BoardGraph, device: &B::Device) -> Tensor<B, 2> {
@@ -188,12 +186,9 @@ mod tests {
         let game = test_game();
         let features = encode_game_gnn(&game, Player::Black);
 
-        assert_eq!(features.len(), 4);
-        for f in &features {
-            assert_eq!(f.len(), FEATURE_DIM);
-            for val in f {
-                assert!(!val.is_nan());
-            }
+        assert_eq!(features.len(), 4 * FEATURE_DIM);
+        for val in &features {
+            assert!(!val.is_nan());
         }
     }
 
@@ -203,11 +198,11 @@ mod tests {
         let game = Game::new(board);
         let features = encode_game_gnn(&game, Player::Black);
 
-        assert_eq!(features.len(), 1);
-        for val in &features[0] {
+        assert_eq!(features.len(), FEATURE_DIM);
+        for val in &features {
             assert!(!val.is_nan());
         }
-        assert_eq!(features[0][6], 0.0);
+        assert_eq!(features[6], 0.0);
     }
 
     #[test]

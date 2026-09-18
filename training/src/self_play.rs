@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use hex_go::{
-    ai::{encoder::encode_game_mlp, search::Search},
+    ai::{
+        encoder::{encode_game_gnn, encode_game_mlp},
+        search::Search,
+    },
     board_layout::BoardDefinition,
     game::{
         Game, GameResult,
@@ -10,7 +13,9 @@ use hex_go::{
     },
 };
 
-use crate::{dataset::TrainingSample, sampler::sample_action_by_temperature};
+use crate::{
+    dataset::TrainingSample, model_type::ModelType, sampler::sample_action_by_temperature,
+};
 use rayon::prelude::*;
 
 pub struct SelfPlayPosition {
@@ -32,6 +37,7 @@ fn policy_to_dense(policy: &[(Action, f32)]) -> Vec<f32> {
 }
 
 pub fn play_game<S: Search>(
+    model_type: ModelType,
     game: &mut Game,
     mcts: &mut S,
     iterations: usize,
@@ -43,7 +49,10 @@ pub fn play_game<S: Search>(
     let mut actions = 0usize;
     while game.result().is_none() {
         let player = game.current_player();
-        let state = encode_game_mlp(game, player);
+        let state = match model_type {
+            ModelType::Mlp => encode_game_mlp(game, player),
+            ModelType::Gnn => encode_game_gnn(game, player),
+        };
 
         let search = match mcts.search(game, iterations) {
             Some(search) => search,
@@ -114,6 +123,7 @@ fn create_game() -> Game {
 }
 
 pub fn generate_self_play_games<S, F>(
+    model_type: ModelType,
     games: usize,
     iterations: usize,
     create_mcts: F,
@@ -128,7 +138,7 @@ where
             let mut game = create_game();
             let mut mcts = create_mcts();
             //let mut mcts = NeuralMcts::new(DummyNetwork);
-            play_game(&mut game, &mut mcts, iterations)
+            play_game(model_type, &mut game, &mut mcts, iterations)
         })
         .collect()
 }
@@ -228,7 +238,7 @@ mod tests {
         let mut game = test_game();
         let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
-        let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
+        let samples = play_game(ModelType::Mlp, &mut game, &mut mcts, TEST_ITERATIONS);
 
         assert!(!samples.is_empty());
         assert!(game.result().is_some());
@@ -249,7 +259,7 @@ mod tests {
         let mut game = test_game();
         let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
-        let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
+        let samples = play_game(ModelType::Mlp, &mut game, &mut mcts, TEST_ITERATIONS);
 
         assert!(!samples.is_empty());
 
@@ -269,7 +279,7 @@ mod tests {
         let mut game = test_game();
         let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
-        let samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
+        let samples = play_game(ModelType::Mlp, &mut game, &mut mcts, TEST_ITERATIONS);
 
         assert!(!samples.is_empty());
 
@@ -290,7 +300,7 @@ mod tests {
         let mut game = test_game();
         let mut mcts = NeuralMcts::new(SelfPlayTestNetwork, NeuralConfig::default());
 
-        let _samples = play_game(&mut game, &mut mcts, TEST_ITERATIONS);
+        let _samples = play_game(ModelType::Mlp, &mut game, &mut mcts, TEST_ITERATIONS);
 
         assert!(game.result().is_some());
 

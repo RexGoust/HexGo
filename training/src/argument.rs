@@ -116,6 +116,10 @@ pub struct PlayArgs {
     /// Number of MCTS iterations
     #[arg(short, long, default_value_t = 800)]
     pub iterations: u32,
+
+    /// Model storage format to use for saving checkpoints
+    #[arg(long, value_enum, default_value_t = ModelType::Mlp)]
+    pub model_type: ModelType,
 }
 
 #[cfg(test)]

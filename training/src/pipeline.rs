@@ -7,6 +7,7 @@ use hex_go::ai::{
     mcts::Mcts,
     model::{
         HexGoModel, MlpModel, MlpModelConfig, ModelConfig,
+        gnn::{GnnModel, GnnModelConfig},
         store::{self, StoreType},
     },
     neural_mcts::{NeuralConfig, NeuralMcts},
@@ -92,8 +93,12 @@ impl Pipeline {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
-        let mut samples =
-            generate_self_play_games(self.config.games, self.config.iterations, Mcts::new);
+        let mut samples = generate_self_play_games(
+            self.config.model_type,
+            self.config.games,
+            self.config.iterations,
+            Mcts::new,
+        );
 
         println!("v0: generated {} samples", samples.len());
 
@@ -103,6 +108,9 @@ impl Pipeline {
         let model = match self.config.model_type {
             ModelType::Mlp => {
                 HexGoModel::Mlp(MlpModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+            }
+            ModelType::Gnn => {
+                HexGoModel::Gnn(GnnModel::<Backend>::new(GnnModelConfig::default(), device))
             }
         };
 
@@ -202,13 +210,17 @@ impl Pipeline {
     fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
         let model = model.valid();
 
-        let mut samples =
-            generate_self_play_games(self.config.games, self.config.iterations, || {
+        let mut samples = generate_self_play_games(
+            self.config.model_type,
+            self.config.games,
+            self.config.iterations,
+            || {
                 NeuralMcts::new(
                     BurnNeuralNetwork::from_model(&model),
                     NeuralConfig { add_noise: true },
                 )
-            });
+            },
+        );
 
         samples.shuffle(&mut rand::rng());
 
@@ -371,6 +383,13 @@ impl Pipeline {
                         model
                     } else {
                         HexGoModel::Mlp(MlpModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                    }
+                }
+                ModelType::Gnn => {
+                    if model.config() == ModelConfig::Gnn(GnnModelConfig::default()) {
+                        model
+                    } else {
+                        HexGoModel::Gnn(GnnModel::new(GnnModelConfig::default(), device))
                     }
                 }
             };
