@@ -43,6 +43,8 @@ pub struct Game {
     consecutive_passes: u8,
     status: GameStatus,
     komi: f64,
+    last_move: Option<VertexId>,
+    moves: usize,
 }
 
 impl Game {
@@ -65,6 +67,8 @@ impl Game {
             consecutive_passes: 0,
             status: Playing,
             komi: DEFAULT_KOMI,
+            last_move: None,
+            moves: 0,
         }
     }
 
@@ -286,6 +290,17 @@ impl Game {
         !self.snapshot_history.contains(&snapshot)
     }
 
+    pub fn is_last_move(&self, vertex: VertexId) -> bool {
+        match self.last_move {
+            Some(v) => vertex == v,
+            None => false,
+        }
+    }
+
+    pub fn move_number(&self) -> usize {
+        self.moves
+    }
+
     fn play_move_internal(&mut self, vertex: VertexId) -> Result<(), MoveError> {
         if self.status != GameStatus::Playing {
             return Err(MoveError::GameOver);
@@ -369,7 +384,8 @@ impl Game {
         self.consecutive_passes = 0;
 
         self.snapshot_history.insert(snapshot);
-
+        self.last_move = Some(vertex);
+        self.moves += 1;
         if !self.has_legal_moves() {
             self.status = GameStatus::Finished(GameEndReason::NoLegalMoves);
         }
@@ -393,7 +409,7 @@ impl Game {
         }
 
         self.current_player = self.current_player.opponent();
-
+        self.last_move = None;
         Ok(())
     }
 
@@ -1170,6 +1186,17 @@ mod test {
         assert!(game.pass_turn().is_ok());
 
         assert_eq!(game.current_player(), Player::White);
+    }
+
+    #[test]
+    fn test_pass_resets_last_move() {
+        let mut game = create_test_game();
+        game.play_move(VertexId::new(0)).unwrap();
+        assert!(game.is_last_move(VertexId::new(0)));
+
+        game.pass_turn().unwrap();
+        assert!(!game.is_last_move(VertexId::new(0)));
+        assert_eq!(game.last_move, None);
     }
 
     #[test]

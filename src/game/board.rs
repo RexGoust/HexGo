@@ -28,6 +28,7 @@ pub enum BoardError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardGraph {
     neighbors: Vec<Vec<VertexId>>,
+    max_degree: usize,
 }
 
 impl BoardGraph {
@@ -62,18 +63,56 @@ impl BoardGraph {
             adjacency[left.index()].push(right);
             adjacency[right.index()].push(left);
         }
-
+        let mut max_degree = 0;
         for (index, neighbors) in adjacency.iter_mut().enumerate() {
             if neighbors.len() > MAX_NEIGHBORS {
                 return Err(BoardError::TooManyNeighbors(VertexId::new(index)));
             }
-
+            if neighbors.len() > max_degree {
+                max_degree = neighbors.len();
+            }
             neighbors.sort_unstable();
         }
 
         Ok(Self {
             neighbors: adjacency,
+            max_degree,
         })
+    }
+
+    /// Returns the symmetrically normalized adjacency matrix with self-loops added, shape [N, N].
+    pub fn normalized_adjacency(&self) -> Vec<Vec<f32>> {
+        let n = self.neighbors.len();
+        let mut adj = vec![vec![0.0f32; n]; n];
+
+        for (i, row) in adj.iter_mut().enumerate() {
+            for &j in &self.neighbors[i] {
+                row[j.index()] = 1.0;
+            }
+        }
+
+        for (i, row) in adj.iter_mut().enumerate() {
+            row[i] = 1.0;
+        }
+
+        let deg: Vec<f32> = adj.iter().map(|row| row.iter().sum()).collect();
+
+        let d_inv_sqrt: Vec<f32> = deg
+            .iter()
+            .map(|&d| if d > 0.0 { 1.0 / d.sqrt() } else { 0.0 })
+            .collect();
+
+        for (i, row) in adj.iter_mut().enumerate() {
+            for (j, val) in row.iter_mut().enumerate() {
+                *val = d_inv_sqrt[i] * *val * d_inv_sqrt[j];
+            }
+        }
+
+        adj
+    }
+
+    pub fn max_degree(&self) -> usize {
+        self.max_degree
     }
 
     pub fn vertex_count(&self) -> usize {

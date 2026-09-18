@@ -36,7 +36,7 @@ mod tests {
     use burn::Tensor;
     use hex_go::ai::{
         encoder::INPUT_SIZE,
-        model::{MLPModelConfig, ModelConfig, store::StoreType},
+        model::{MlpModelConfig, ModelConfig, store::StoreType},
     };
     use rand::RngExt;
     use std::fs;
@@ -44,11 +44,14 @@ mod tests {
     #[test]
     fn test_convert_model_between_formats() {
         let device = default_device();
-        let config = MLPModelConfig { hidden_size: 64 };
+        let config = MlpModelConfig { hidden_size: 64 };
         let model = HexGoModel::<Backend>::new(ModelConfig::Mlp(config.clone()), &device);
 
         let input = Tensor::<Backend, 2>::zeros([1, INPUT_SIZE], &device);
-        let expected_output = model.forward(input.clone());
+        let expected_output = match &model {
+            HexGoModel::Mlp(m) => m.forward(input.clone()),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
 
         let temp_dir = std::env::temp_dir().join(format!(
             "hexgo-test-convert-{}",
@@ -66,7 +69,10 @@ mod tests {
         let bpk_model: HexGoModel<Backend> = load_model(&bpk_path, &device);
         assert_eq!(bpk_model.config(), ModelConfig::Mlp(config.clone()));
 
-        let bpk_output = bpk_model.forward(input.clone());
+        let bpk_output = match &bpk_model {
+            HexGoModel::Mlp(m) => m.forward(input.clone()),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
         let expected_val = expected_output.value.into_data().to_vec::<f32>().unwrap();
         let bpk_val = bpk_output.value.into_data().to_vec::<f32>().unwrap();
         for (e, a) in expected_val.iter().zip(&bpk_val) {
@@ -81,7 +87,10 @@ mod tests {
         let back_model: HexGoModel<Backend> = load_model(&back_mpk_path, &device);
         assert_eq!(back_model.config(), ModelConfig::Mlp(config));
 
-        let back_output = back_model.forward(input);
+        let back_output = match &back_model {
+            HexGoModel::Mlp(m) => m.forward(input),
+            HexGoModel::Gnn(_) => unreachable!(),
+        };
         let back_val = back_output.value.into_data().to_vec::<f32>().unwrap();
         for (e, a) in expected_val.iter().zip(&back_val) {
             assert!(

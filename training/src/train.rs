@@ -1,26 +1,41 @@
 #![allow(dead_code)]
 use burn::{
-    Tensor,
     optim::{GradientsParams, Optimizer},
-    tensor::{ElementConversion, backend::AutodiffBackend},
+    tensor::{
+        ElementConversion,
+        backend::{AutodiffBackend, Backend},
+    },
 };
 
 use crate::{
     dataset::TrainingSample,
     loss::{LossValue, pred_entropy, target_entropy, total_loss},
-    tensor::samples_to_tensors,
+    tensor::{samples_to_gnn_tensors, samples_to_mlp_tensors},
 };
-use hex_go::ai::model::HexGoModel;
+use hex_go::{
+    ai::{encoder::adjacency_tensor, model::HexGoModel},
+    board_layout::BoardDefinition,
+};
 
-pub fn train_step<B: AutodiffBackend>(
+pub fn train_on_samples<B: AutodiffBackend>(
     model: HexGoModel<B>,
-    input: Tensor<B, 2>,
-    target_policy: Tensor<B, 2>,
-    target_value: Tensor<B, 2>,
     optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
+    samples: &[TrainingSample],
+    device: &B::Device,
     learning_rate: f64,
 ) -> (HexGoModel<B>, LossValue) {
-    let output = model.forward(input);
+    let (output, target_policy, target_value) = match &model {
+        HexGoModel::Mlp(m) => {
+            let (state, policy, value) = samples_to_mlp_tensors::<B>(samples, device);
+            (m.forward(state), policy, value)
+        }
+        HexGoModel::Gnn(m) => {
+            let (state, policy, value) = samples_to_gnn_tensors::<B>(samples, device);
+            let board_def = BoardDefinition::compact();
+            let adj = adjacency_tensor::<B>(board_def.graph(), device);
+            (m.forward(state, adj), policy, value)
+        }
+    };
 
     let loss = total_loss(
         output.policy.clone(),
@@ -53,57 +68,83 @@ pub fn train_step<B: AutodiffBackend>(
     )
 }
 
-pub fn train_on_samples<B: AutodiffBackend>(
-    model: HexGoModel<B>,
-    optimizer: &mut impl Optimizer<HexGoModel<B>, B>,
-    samples: &[TrainingSample],
-    device: &B::Device,
-    learning_rate: f64,
-) -> (HexGoModel<B>, LossValue) {
-    let (state, policy, value) = samples_to_tensors::<B>(samples, device);
-
-    train_step(model, state, policy, value, optimizer, learning_rate)
-}
-
-pub fn validation_step<B: AutodiffBackend>(
+pub fn validation_step<B: Backend>(
     model: &HexGoModel<B>,
     samples: &[TrainingSample],
+    batch_size: usize,
     device: &B::Device,
 ) -> LossValue {
-    let (states, policies, values) = samples_to_tensors(samples, device);
+    if samples.is_empty() {
+        return LossValue {
+            policy: 0.0,
+            value: 0.0,
+            total: 0.0,
+            target_entropy: None,
+            pred_entropy: None,
+        };
+    }
 
-    let output = model.forward(states);
+    let board_def = BoardDefinition::compact();
+    let adj = adjacency_tensor::<B>(board_def.graph(), device);
 
-    let loss = total_loss(
-        output.policy.clone(),
-        policies.clone(),
-        output.value,
-        values,
-    );
+    let mut total_loss_sum = 0.0;
+    let mut policy_loss_sum = 0.0;
+    let mut value_loss_sum = 0.0;
+    let mut target_entropy_sum = 0.0;
+    let mut pred_entropy_sum = 0.0;
+    let total_samples = samples.len() as f32;
 
-    let total = loss.total.into_scalar().elem::<f32>();
-    let policy = loss.policy.into_scalar().elem::<f32>();
-    let value = loss.value.into_scalar().elem::<f32>();
-    let target_entropy = target_entropy(policies);
-    let pred_entropy = pred_entropy(output.policy.detach());
+    for batch in samples.chunks(batch_size.max(1)) {
+        let batch_len = batch.len() as f32;
+
+        let (output, target_policy, target_value) = match model {
+            HexGoModel::Mlp(m) => {
+                let (states, policies, values) = samples_to_mlp_tensors(batch, device);
+                (m.forward(states), policies, values)
+            }
+            HexGoModel::Gnn(m) => {
+                let (states, policies, values) = samples_to_gnn_tensors(batch, device);
+                (m.forward(states, adj.clone()), policies, values)
+            }
+        };
+
+        let loss = total_loss(
+            output.policy.clone(),
+            target_policy.clone(),
+            output.value,
+            target_value,
+        );
+
+        let total = loss.total.into_scalar().elem::<f32>();
+        let policy = loss.policy.into_scalar().elem::<f32>();
+        let value = loss.value.into_scalar().elem::<f32>();
+        let t_entropy = target_entropy(target_policy);
+        let p_entropy = pred_entropy(output.policy);
+
+        total_loss_sum += total * batch_len;
+        policy_loss_sum += policy * batch_len;
+        value_loss_sum += value * batch_len;
+        target_entropy_sum += t_entropy * batch_len;
+        pred_entropy_sum += p_entropy * batch_len;
+    }
     LossValue {
-        policy,
-        value,
-        total,
-        target_entropy: Some(target_entropy),
-        pred_entropy: Some(pred_entropy),
+        policy: policy_loss_sum / total_samples,
+        value: value_loss_sum / total_samples,
+        total: total_loss_sum / total_samples,
+        target_entropy: Some(target_entropy_sum / total_samples),
+        pred_entropy: Some(pred_entropy_sum / total_samples),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dataset::TrainingSample, tensor::samples_to_tensors};
+    use crate::dataset::TrainingSample;
     use burn::{
         backend::{Autodiff, Flex},
         optim::AdamWConfig,
     };
-    use hex_go::ai::model::{MLPModel, MLPModelConfig};
+    use hex_go::ai::model::{MlpModel, MlpModelConfig};
     use hex_go::game::action::ACTION_SIZE;
 
     type Backend = Autodiff<Flex>;
@@ -122,24 +163,16 @@ mod tests {
             value: 1.0,
         }];
 
-        let (input, target_policy, target_value) = samples_to_tensors::<Backend>(&samples, &device);
-
         let mut model =
-            HexGoModel::Mlp(MLPModel::<Backend>::new(MLPModelConfig::default(), &device));
+            HexGoModel::Mlp(MlpModel::<Backend>::new(MlpModelConfig::default(), &device));
         let mut optimizer = AdamWConfig::new().with_weight_decay(1e-4).init();
 
         let mut initial_loss = None;
         let mut final_loss = 0.0;
 
         for step in 0..100 {
-            let (new_model, loss) = train_step(
-                model,
-                input.clone(),
-                target_policy.clone(),
-                target_value.clone(),
-                &mut optimizer,
-                1e-3,
-            );
+            let (new_model, loss) =
+                train_on_samples(model, &mut optimizer, &samples, &device, 1e-3);
 
             model = new_model;
 
@@ -191,14 +224,14 @@ mod tests {
     #[test]
     fn validation_step_returns_finite_loss() {
         let device = Default::default();
-        let model = HexGoModel::Mlp(MLPModel::<TestBackend>::new(
-            MLPModelConfig::default(),
+        let model = HexGoModel::Mlp(MlpModel::<TestBackend>::new(
+            MlpModelConfig::default(),
             &device,
         ));
 
         let samples = test_samples();
 
-        let loss = validation_step(&model, &samples, &device);
+        let loss = validation_step(&model, &samples, 256, &device);
 
         assert!(
             loss.total.is_finite(),
@@ -209,13 +242,13 @@ mod tests {
     #[test]
     fn validation_step_does_not_require_optimizer() {
         let device = Default::default();
-        let model = HexGoModel::Mlp(MLPModel::<TestBackend>::new(
-            MLPModelConfig::default(),
+        let model = HexGoModel::Mlp(MlpModel::<TestBackend>::new(
+            MlpModelConfig::default(),
             &device,
         ));
         let samples = test_samples();
 
-        let loss = validation_step(&model, &samples, &device);
+        let loss = validation_step(&model, &samples, 256, &device);
 
         assert!(loss.total.is_finite());
     }
@@ -232,9 +265,9 @@ mod tests {
 
         let device = Default::default();
 
-        let model = MLPModel::<TestBackend>::new(MLPModelConfig::default(), &device);
+        let model = MlpModel::<TestBackend>::new(MlpModelConfig::default(), &device);
 
-        let inference_model: MLPModel<InferenceBackend> = model.valid();
+        let inference_model: MlpModel<InferenceBackend> = model.valid();
 
         let path = std::env::temp_dir().join("hexgo-test-model");
 
@@ -242,7 +275,7 @@ mod tests {
             .save_file(&path, &CompactRecorder::new())
             .expect("failed to save model");
 
-        let _loaded_model = MLPModel::<InferenceBackend>::new(MLPModelConfig::default(), &device)
+        let _loaded_model = MlpModel::<InferenceBackend>::new(MlpModelConfig::default(), &device)
             .load_file(&path, &CompactRecorder::new(), &device)
             .expect("failed to load model");
 

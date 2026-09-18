@@ -2,15 +2,17 @@ use std::fmt;
 
 use clap::ValueEnum;
 
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Debug, Clone, ValueEnum, Copy)]
 pub enum ModelType {
     Mlp,
+    Gnn,
 }
 
 impl ModelType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Mlp => "mlp",
+            Self::Gnn => "gnn",
         }
     }
 }

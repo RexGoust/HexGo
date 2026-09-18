@@ -8,12 +8,13 @@ use burn_store::{BurnpackStore, ModuleSnapshot};
 
 use crate::ai::{
     backend::{Backend, Device, default_device},
-    model::{HexGoModel, MLPModel, MLPModelConfig, ModelConfig},
+    encoder::{adjacency_tensor, encode_game_gnn_tensor},
+    model::{HexGoModel, MlpModel, MlpModelConfig, ModelConfig, gnn::GnnModel},
 };
 
 use crate::{
     ai::{
-        encoder::{INPUT_SIZE, encode_game},
+        encoder::{INPUT_SIZE, encode_game_mlp},
         neural_network::{Evaluation, NeuralNetwork},
     },
     game::{
@@ -40,15 +41,20 @@ impl BurnNeuralNetwork {
             Ok(config) => config,
             Err(_) => {
                 println!("can't parse config, use default config");
-                ModelConfig::Mlp(MLPModelConfig::default())
+                ModelConfig::Mlp(MlpModelConfig::default())
             }
         };
         let mut store = BurnpackStore::from_static(MODEL).zero_copy(false);
         let model = match config {
             ModelConfig::Mlp(cfg) => {
-                let mut mlp = MLPModel::<Backend>::new(cfg, device);
+                let mut mlp = MlpModel::<Backend>::new(cfg, device);
                 mlp.load_from(&mut store).expect("failed to load model");
                 HexGoModel::Mlp(mlp)
+            }
+            ModelConfig::Gnn(cfg) => {
+                let mut gnn = GnnModel::<Backend>::new(cfg, device);
+                gnn.load_from(&mut store).expect("failed to load model");
+                HexGoModel::Gnn(gnn)
             }
         };
         Self {
@@ -72,12 +78,24 @@ impl BurnNeuralNetwork {
 
 impl NeuralNetwork for BurnNeuralNetwork {
     fn evaluate(&self, game: &Game, player: Player) -> Evaluation {
-        let input = encode_game(game, player);
+        let output = match &self.model {
+            HexGoModel::Mlp(m) => {
+                let input = encode_game_mlp(game, player);
 
-        let input_tensor =
-            Tensor::<Backend, 2>::from_data(TensorData::new(input, [1, INPUT_SIZE]), &self.device);
+                let input_tensor = Tensor::<Backend, 2>::from_data(
+                    TensorData::new(input, [1, INPUT_SIZE]),
+                    &self.device,
+                );
 
-        let output = self.model.forward(input_tensor);
+                m.forward(input_tensor)
+            }
+            HexGoModel::Gnn(m) => {
+                let x =
+                    encode_game_gnn_tensor::<Backend>(game, player, &self.device).unsqueeze::<3>();
+                let adj = adjacency_tensor::<Backend>(game.board(), &self.device);
+                m.forward(x, adj)
+            }
+        };
 
         let policy_probs = softmax(output.policy, 1);
         let policy_values: Vec<f32> = policy_probs.into_data().to_vec().unwrap();
