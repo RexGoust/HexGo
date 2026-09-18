@@ -43,6 +43,8 @@ pub struct Game {
     consecutive_passes: u8,
     status: GameStatus,
     komi: f64,
+    last_move: Option<VertexId>,
+    moves: usize,
 }
 
 impl Game {
@@ -65,6 +67,8 @@ impl Game {
             consecutive_passes: 0,
             status: Playing,
             komi: DEFAULT_KOMI,
+            last_move: None,
+            moves: 0,
         }
     }
 
@@ -286,6 +290,17 @@ impl Game {
         !self.snapshot_history.contains(&snapshot)
     }
 
+    pub fn is_last_move(&self, vertex: VertexId) -> bool {
+        match self.last_move {
+            Some(v) => vertex == v,
+            None => false,
+        }
+    }
+
+    pub fn move_number(&self) -> usize {
+        self.moves
+    }
+
     fn play_move_internal(&mut self, vertex: VertexId) -> Result<(), MoveError> {
         if self.status != GameStatus::Playing {
             return Err(MoveError::GameOver);
@@ -369,7 +384,8 @@ impl Game {
         self.consecutive_passes = 0;
 
         self.snapshot_history.insert(snapshot);
-
+        self.last_move = Some(vertex);
+        self.moves += 1;
         if !self.has_legal_moves() {
             self.status = GameStatus::Finished(GameEndReason::NoLegalMoves);
         }

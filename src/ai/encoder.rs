@@ -1,4 +1,14 @@
-use crate::game::{Game, player::Player, state::VertexState};
+use burn::{
+    Tensor,
+    tensor::{TensorData, backend::Backend},
+};
+
+use crate::game::{
+    Game,
+    board::{BoardGraph, VertexId},
+    player::Player,
+    state::VertexState,
+};
 
 pub const INPUT_SIZE: usize = 88 * 3;
 
@@ -11,7 +21,7 @@ pub const INPUT_SIZE: usize = 88 * 3;
 ///
 /// Vertices are encoded in stable `VertexId` order, so the resulting
 /// vector has `3 * vertex_count` elements.
-pub fn encode_game(game: &Game, player: Player) -> Vec<f32> {
+pub fn encode_game_mlp(game: &Game, player: Player) -> Vec<f32> {
     let mut input = Vec::with_capacity(game.board().vertex_count() * 3);
 
     let opponent = player.opponent();
@@ -40,6 +50,91 @@ pub fn encode_game(game: &Game, player: Player) -> Vec<f32> {
 
     input
 }
+
+const FEATURE_DIM: usize = 8;
+
+fn encode_vertex_gnn(
+    game: &Game,
+    player: Player,
+    opponent: Player,
+    vertex: VertexId,
+) -> [f32; FEATURE_DIM] {
+    let (is_player, is_opponent, is_empty) = match game.vertex_state(vertex) {
+        Some(VertexState::Occupied(owner)) if owner == player => (1.0, 0.0, 0.0),
+        Some(VertexState::Occupied(owner)) if owner == opponent => (0.0, 1.0, 0.0),
+        Some(VertexState::Empty) => (0.0, 0.0, 1.0),
+        Some(VertexState::Occupied(_)) | None => unreachable!(),
+    };
+
+    let liberty_count = game.liberty_count(vertex);
+    let group_liberties = match liberty_count {
+        Some(n) => (1.0 + n as f32).ln() / (1.0 + 16.0f32).ln(),
+        None => 0.0,
+    };
+
+    let is_in_atari = if is_player + is_opponent > 0.0 {
+        matches!(liberty_count, Some(1)) as i32 as f32
+    } else {
+        0.0
+    };
+
+    let is_last_move = game.is_last_move(vertex) as i32 as f32;
+
+    let neighbor_count: f32 = game
+        .board()
+        .get_neighbors(vertex)
+        .map(|s| s.len())
+        .unwrap_or(0) as f32
+        / game.board().max_degree() as f32;
+
+    let moves = (1.0 + game.move_number() as f32).ln();
+
+    let mut f = [0.0f32; FEATURE_DIM];
+
+    f[0] = is_player;
+    f[1] = is_opponent;
+    f[2] = is_empty;
+    f[3] = group_liberties;
+    f[4] = is_in_atari;
+    f[5] = is_last_move;
+    f[6] = neighbor_count;
+    f[7] = moves;
+    f
+}
+
+pub fn encode_game_gnn(game: &Game, player: Player) -> Vec<[f32; FEATURE_DIM]> {
+    let vertex_count = game.board().vertex_count();
+    let opponent = player.opponent();
+
+    (0..vertex_count)
+        .map(|index| {
+            let vertex = crate::game::board::VertexId::new(index);
+            encode_vertex_gnn(game, player, opponent, vertex)
+        })
+        .collect()
+}
+
+pub fn encode_game_gnn_tensor<B: Backend>(
+    game: &Game,
+    player: Player,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let data = encode_game_gnn(game, player);
+    let n = data.len();
+
+    let flat: Vec<f32> = data.into_iter().flatten().collect();
+
+    Tensor::<B, 2>::from_data(TensorData::new(flat, [n, FEATURE_DIM]), device)
+}
+
+pub fn adjacency_tensor<B: Backend>(graph: &BoardGraph, device: &B::Device) -> Tensor<B, 2> {
+    let adj = graph.normalized_adjacency();
+    let n = adj.len();
+    let flat: Vec<f32> = adj.into_iter().flatten().collect();
+
+    Tensor::<B, 2>::from_data(TensorData::new(flat, [n, n]), device)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,7 +160,7 @@ mod tests {
     #[test]
     fn encode_game_has_expected_size() {
         let game = test_game();
-        let input = encode_game(&game, Player::Black);
+        let input = encode_game_mlp(&game, Player::Black);
 
         assert_eq!(input.len(), 4 * 3);
     }
@@ -76,10 +171,10 @@ mod tests {
 
         game.play_move(VertexId::new(0)).unwrap();
 
-        let input = encode_game(&game, Player::Black);
+        let input = encode_game_mlp(&game, Player::Black);
         assert_eq!(&input[0..3], &[1.0, 0.0, 0.0]);
 
-        let input = encode_game(&game, Player::White);
+        let input = encode_game_mlp(&game, Player::White);
         assert_eq!(&input[0..3], &[0.0, 1.0, 0.0]);
     }
 }

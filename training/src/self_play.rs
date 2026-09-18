@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use hex_go::{
-    ai::{encoder::encode_game, search::Search},
+    ai::{encoder::encode_game_mlp, search::Search},
     board_layout::BoardDefinition,
     game::{
         Game, GameResult,
@@ -43,7 +43,7 @@ pub fn play_game<S: Search>(
     let mut actions = 0usize;
     while game.result().is_none() {
         let player = game.current_player();
-        let state = encode_game(game, player);
+        let state = encode_game_mlp(game, player);
 
         let search = match mcts.search(game, iterations) {
             Some(search) => search,
