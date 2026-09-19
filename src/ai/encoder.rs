@@ -214,14 +214,14 @@ mod tests {
 
     #[test]
     fn encode_game_gnn_tensors_have_expected_dims() {
-        use crate::ai::backend::InferBackend;
+        use crate::ai::backend::CpuBackend;
 
         let game = test_game();
         let device = Default::default();
-        let x = encode_game_gnn_tensor::<InferBackend>(&game, Player::Black, &device);
+        let x = encode_game_gnn_tensor::<CpuBackend>(&game, Player::Black, &device);
         assert_eq!(x.dims(), [4, FEATURE_DIM]);
 
-        let adj = adjacency_tensor::<InferBackend>(game.board(), &device);
+        let adj = adjacency_tensor::<CpuBackend>(game.board(), &device);
         assert_eq!(adj.dims(), [4, 4]);
     }
 }

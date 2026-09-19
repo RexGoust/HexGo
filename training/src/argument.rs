@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use hex_go::ai::model::store::StoreType;
 
-use crate::model_type::ModelType;
+use crate::{device::DeviceKind, model_type::ModelType};
 #[derive(Parser)]
 #[command(styles = clap_cargo::style::CLAP_STYLING)]
 #[command(name = "hexgo-train", version, about = "HexGo AI tools")]
@@ -77,9 +77,13 @@ pub struct TrainArgs {
     #[arg(long)]
     pub no_eval: bool,
 
-    /// Number of samples per inferring batch
+    /// Number of samples per inferring batch(Only for cuda engine)
     #[arg(long, default_value_t = 64)]
     pub infer_size: usize,
+
+    /// Infer device
+    #[arg(long, value_enum, default_value_t = DeviceKind::Cpu)]
+    pub infer_device: DeviceKind,
 }
 
 #[derive(Args)]
@@ -100,9 +104,13 @@ pub struct EvaluateArgs {
     #[arg(short, long, default_value_t = 800)]
     pub iterations: u32,
 
-    /// Number of samples per inferring batch
+    /// Number of samples per inferring batch(Only for cuda engine)
     #[arg(long, default_value_t = 64)]
     pub infer_size: usize,
+
+    /// Infer device
+    #[arg(long, value_enum, default_value_t = DeviceKind::Cpu)]
+    pub infer_device: DeviceKind,
 }
 
 #[derive(Args)]
@@ -138,9 +146,17 @@ pub struct PlayArgs {
     #[arg(long, value_enum, default_value_t = ModelType::Mlp)]
     pub model_type: ModelType,
 
-    /// Number of samples per inferring batch
+    /// Number of samples per inferring batch(Only for cuda engine)
     #[arg(long, default_value_t = 64)]
     pub infer_size: usize,
+
+    /// Infer device
+    #[arg(long, value_enum, default_value_t = DeviceKind::Cpu)]
+    pub infer_device: DeviceKind,
+
+    /// Train device
+    #[arg(long, value_enum, default_value_t = DeviceKind::Cpu)]
+    pub train_device: DeviceKind,
 }
 
 #[cfg(test)]

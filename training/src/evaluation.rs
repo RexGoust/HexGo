@@ -3,11 +3,13 @@ use std::fmt;
 use burn::{Tensor, tensor::backend::Backend};
 use hex_go::{
     ai::{
-        backend::{InferDevice, default_infer_device},
+        backend::{CpuBackend, CudaBackend, cpu_device, cuda_device, switch_model_backend},
+        burn_neural_network::BurnNeuralNetwork,
         dummy_network::DummyNetwork,
         encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
         model::{HexGoModel, store::*},
         neural_mcts::{NeuralConfig, NeuralMcts, StepState},
+        search::Search,
     },
     board_layout::BoardDefinition,
     game::{
@@ -16,14 +18,14 @@ use hex_go::{
         player::Player,
     },
 };
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
-
-use crate::{
-    argument::EvaluateArgs, model_type::ModelType, sampler::sample_action_by_temperature,
-    train_network::forward_batch,
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use hex_go::ai::backend::InferBackend;
+use crate::{
+    argument::EvaluateArgs, device::DeviceKind, model_type::ModelType,
+    sampler::sample_action_by_temperature, train_network::forward_batch,
+};
 
 struct ActiveEvalGame {
     index: usize,
@@ -128,6 +130,8 @@ pub struct EvaluationConfig {
     pub iterations: usize,
 
     pub infer_size: usize,
+
+    pub infer_device: DeviceKind,
 }
 
 impl From<EvaluateArgs> for EvaluationConfig {
@@ -138,6 +142,7 @@ impl From<EvaluateArgs> for EvaluationConfig {
             games: args.games as usize,
             iterations: args.iterations as usize,
             infer_size: args.infer_size,
+            infer_device: args.infer_device,
         }
     }
 }
@@ -150,35 +155,90 @@ pub fn create_evaluate(config: EvaluationConfig) {
         config.candidate, config.baseline
     );
 
-    let device = default_infer_device();
-    let candidate = load_model::<InferBackend>(config.candidate, &device);
-    let baseline = load_model::<InferBackend>(config.baseline, &device);
+    let result = match config.infer_device {
+        DeviceKind::Cpu => {
+            let device = cpu_device();
+            let candidate = load_model::<CpuBackend>(config.candidate, &device);
+            let baseline = load_model::<CpuBackend>(config.baseline, &device);
 
-    start_evaluate(
-        candidate,
-        baseline,
-        &device,
-        config.infer_size,
-        config.games,
-        config.iterations,
-    );
+            evaluate_model_cpu(
+                || {
+                    NeuralMcts::new(
+                        BurnNeuralNetwork::from_model(&candidate),
+                        NeuralConfig::default(),
+                    )
+                },
+                || {
+                    NeuralMcts::new(
+                        BurnNeuralNetwork::from_model(&baseline),
+                        NeuralConfig::default(),
+                    )
+                },
+                config.games,
+                config.iterations,
+            )
+        }
+        DeviceKind::Cuda => {
+            let device = cuda_device();
+            let candidate = load_model::<CudaBackend>(config.candidate, &device);
+            let baseline = load_model::<CudaBackend>(config.baseline, &device);
+
+            evaluate_model_cuda(
+                candidate,
+                baseline,
+                &device,
+                config.infer_size,
+                config.games,
+                config.iterations,
+            )
+        }
+    };
+
+    println!("evaluate result: {}", result);
 }
 
-pub fn start_evaluate(
-    candidate: HexGoModel<InferBackend>,
-    baseline: HexGoModel<InferBackend>,
-    device: &InferDevice,
+pub fn start_evaluate<B: Backend>(
+    candidate: HexGoModel<B>,
+    baseline: HexGoModel<B>,
+    device: &B::Device,
     batch_size: usize,
     games: usize,
     iterations: usize,
+    infer_device: DeviceKind,
 ) -> EvaluationResult {
-    let result = evaluate_model(candidate, baseline, device, batch_size, games, iterations);
+    let result = match infer_device {
+        DeviceKind::Cpu => {
+            let cpu_dev = cpu_device();
+
+            let candidate_cpu = switch_model_backend::<B, CpuBackend>(candidate, &cpu_dev);
+            let baseline_cpu = switch_model_backend::<B, CpuBackend>(baseline, &cpu_dev);
+
+            evaluate_model_cpu(
+                || {
+                    NeuralMcts::new(
+                        BurnNeuralNetwork::from_model(&candidate_cpu),
+                        NeuralConfig::default(),
+                    )
+                },
+                || {
+                    NeuralMcts::new(
+                        BurnNeuralNetwork::from_model(&baseline_cpu),
+                        NeuralConfig::default(),
+                    )
+                },
+                games,
+                iterations,
+            )
+        }
+        DeviceKind::Cuda => {
+            evaluate_model_cuda(candidate, baseline, device, batch_size, games, iterations)
+        }
+    };
 
     println!("evaluate result: {}", result);
     result
 }
 
-/*
 fn play_model(
     black: &mut dyn Search,
     white: &mut dyn Search,
@@ -222,7 +282,41 @@ fn play_model(
 
     game.result().unwrap()
 }
-*/
+
+fn evaluate_model_cpu<S, FC, FB>(
+    candidate: FC,
+    baseline: FB,
+    games: usize,
+    iterations: usize,
+) -> EvaluationResult
+where
+    S: Search,
+    FC: Fn() -> S + Sync,
+    FB: Fn() -> S + Sync,
+{
+    let results: Vec<(usize, GameResult)> = (0..games)
+        .into_par_iter()
+        .map(|index| {
+            let mut white = if index % 2 == 0 {
+                baseline()
+            } else {
+                candidate()
+            };
+
+            let mut black = if index % 2 == 0 {
+                candidate()
+            } else {
+                baseline()
+            };
+
+            let mut game = create_game();
+            let result = play_model(&mut black, &mut white, &mut game, iterations);
+            (index, result)
+        })
+        .collect();
+
+    calculate_result(results)
+}
 
 fn create_game() -> Game {
     let board = BoardDefinition::compact().graph().clone();
@@ -327,7 +421,7 @@ fn update_model_evaluations<B: Backend>(
     });
 }
 
-fn evaluate_model<B: Backend>(
+fn evaluate_model_cuda<B: Backend>(
     candidate: HexGoModel<B>,
     baseline: HexGoModel<B>,
     device: &B::Device,

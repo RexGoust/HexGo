@@ -2,6 +2,7 @@ mod active_game;
 mod argument;
 mod convert;
 mod dataset;
+mod device;
 mod evaluation;
 mod loss;
 mod model_type;
@@ -12,7 +13,6 @@ mod self_play;
 mod tensor;
 mod train;
 mod train_network;
-
 use clap::Parser;
 
 use crate::{

@@ -5566,7 +5566,6 @@ dependencies = [
  "burn-store",
  "clap",
  "clap-cargo",
- "crossbeam-channel",
  "rand 0.10.2",
  "rayon",
  "ricci",
