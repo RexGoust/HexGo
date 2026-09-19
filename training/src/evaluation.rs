@@ -155,46 +155,38 @@ pub fn create_evaluate(config: EvaluationConfig) {
         config.candidate, config.baseline
     );
 
-    let result = match config.infer_device {
+    match config.infer_device {
         DeviceKind::Cpu => {
             let device = cpu_device();
             let candidate = load_model::<CpuBackend>(config.candidate, &device);
             let baseline = load_model::<CpuBackend>(config.baseline, &device);
 
-            evaluate_model_cpu(
-                || {
-                    NeuralMcts::new(
-                        BurnNeuralNetwork::from_model(&candidate),
-                        NeuralConfig::default(),
-                    )
-                },
-                || {
-                    NeuralMcts::new(
-                        BurnNeuralNetwork::from_model(&baseline),
-                        NeuralConfig::default(),
-                    )
-                },
-                config.games,
-                config.iterations,
-            )
-        }
-        DeviceKind::Cuda => {
-            let device = cuda_device();
-            let candidate = load_model::<CudaBackend>(config.candidate, &device);
-            let baseline = load_model::<CudaBackend>(config.baseline, &device);
-
-            evaluate_model_cuda(
+            start_evaluate(
                 candidate,
                 baseline,
                 &device,
                 config.infer_size,
                 config.games,
                 config.iterations,
-            )
+                config.infer_device,
+            );
+        }
+        DeviceKind::Cuda => {
+            let device = cuda_device();
+            let candidate = load_model::<CudaBackend>(config.candidate, &device);
+            let baseline = load_model::<CudaBackend>(config.baseline, &device);
+
+            start_evaluate(
+                candidate,
+                baseline,
+                &device,
+                config.infer_size,
+                config.games,
+                config.iterations,
+                config.infer_device,
+            );
         }
     };
-
-    println!("evaluate result: {}", result);
 }
 
 pub fn start_evaluate<B: Backend>(
