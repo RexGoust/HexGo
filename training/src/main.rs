@@ -4,6 +4,7 @@ mod convert;
 mod dataset;
 mod device;
 mod evaluation;
+mod game_slot;
 mod loss;
 mod model_type;
 mod pipeline;

@@ -5,7 +5,6 @@ use hex_go::{
     ai::{
         encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
         model::HexGoModel,
-        neural_mcts::StepState::{self, NeedsEvaluation},
         search::Search,
     },
     board_layout::BoardDefinition,
@@ -17,8 +16,9 @@ use hex_go::{
 };
 
 use crate::{
-    active_game::{ActiveGame, MAX_ACTIONS, create_game, policy_to_dense},
+    active_game::{MAX_ACTIONS, create_game, policy_to_dense},
     dataset::TrainingSample,
+    game_slot::GameSlot,
     model_type::ModelType,
     sampler::sample_action_by_temperature,
     train_network::forward_batch,
@@ -144,8 +144,13 @@ where
     B: Backend,
 {
     let mut samples = Vec::new();
-    let mut completed_games = 0;
-    let mut started_games = batch_size.min(total_games);
+    let mut completed = 0;
+    let initial_games = batch_size.min(total_games);
+    let count_0 = initial_games.div_ceil(2);
+    let count_1 = initial_games - count_0;
+
+    let mut slots = [GameSlot::new(count_0), GameSlot::new(count_1)];
+    let mut started = slots[0].games.len() + slots[1].games.len();
 
     let adj = match &model {
         HexGoModel::Gnn(_) => {
@@ -155,63 +160,75 @@ where
         _ => Tensor::zeros([1, 1], device),
     };
 
-    let mut games: Vec<ActiveGame> = (0..started_games).map(|_| ActiveGame::new()).collect();
+    std::thread::scope(|s| {
+        let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>)>(2);
+        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
 
-    while completed_games < total_games {
-        for _ in 0..iterations {
-            games.par_iter_mut().for_each(|g| {
-                g.state = g.mcts.step_select(&g.game);
-                if let StepState::NeedsEvaluation { leaf_game, .. } = &g.state {
-                    g.input_buf = match model_type {
-                        ModelType::Mlp => encode_game_mlp(leaf_game, leaf_game.current_player()),
-                        ModelType::Gnn => encode_game_gnn(leaf_game, leaf_game.current_player()),
-                    };
+        s.spawn(move || {
+            while let Ok((id, inputs)) = req_rx.recv() {
+                let refs: Vec<&Vec<f32>> = inputs.iter().collect();
+                let res = forward_batch(&model, device, &adj, &refs);
+                if resp_tx.send((id, res)).is_err() {
+                    break;
                 }
-            });
-
-            let inputs: Vec<&Vec<f32>> = games
-                .iter_mut()
-                .filter(|game| matches!(&game.state, NeedsEvaluation { .. }))
-                .map(|game| &game.input_buf)
-                .collect();
-
-            if inputs.is_empty() {
-                continue;
             }
-
-            let (policies, values) = forward_batch(&model, device, &adj, &inputs);
-
-            let mut to_update: Vec<&mut ActiveGame> = games
-                .iter_mut()
-                .filter(|g| matches!(&g.state, StepState::NeedsEvaluation { .. }))
-                .collect();
-
-            to_update.par_iter_mut().enumerate().for_each(|(i, g)| {
-                if let StepState::NeedsEvaluation { node, leaf_game } = &g.state {
-                    g.mcts
-                        .step_update(*node, leaf_game, &policies[i], values[i]);
-                }
-            });
-        }
-
-        games.par_iter_mut().for_each(|g| {
-            g.step_action(model_type);
         });
 
-        for g in games.iter_mut() {
-            if g.is_finished() {
-                samples.extend(g.finish_game());
-                completed_games += 1;
-
-                if started_games < total_games {
-                    started_games += 1;
-                    *g = ActiveGame::new();
-                }
+        let mut in_flight = 0;
+        for (id, slot) in slots.iter_mut().enumerate() {
+            let inputs = slot.select(model_type);
+            if !inputs.is_empty() {
+                req_tx.send((id, inputs)).unwrap();
+                in_flight += 1;
             }
         }
 
-        games.retain(|g| !g.is_finished());
-    }
+        while in_flight > 0 {
+            let (id, (policies, values)) = resp_rx.recv().unwrap();
+            in_flight -= 1;
+
+            let slot = &mut slots[id];
+
+            slot.update(&policies, &values);
+            slot.step += 1;
+            if slot.step >= iterations {
+                slot.commit_actions(
+                    model_type,
+                    &mut samples,
+                    &mut completed,
+                    &mut started,
+                    total_games,
+                );
+            }
+
+            if !slot.games.is_empty() && completed < total_games {
+                loop {
+                    let next_inputs = slot.select(model_type);
+                    if !next_inputs.is_empty() {
+                        req_tx.send((id, next_inputs)).unwrap();
+                        in_flight += 1;
+                        break;
+                    }
+
+                    slot.step += 1;
+                    if slot.step >= iterations {
+                        slot.commit_actions(
+                            model_type,
+                            &mut samples,
+                            &mut completed,
+                            &mut started,
+                            total_games,
+                        );
+                    }
+
+                    if slot.games.is_empty() || completed >= total_games {
+                        break;
+                    }
+                }
+            }
+        }
+        drop(req_tx);
+    });
 
     samples
 }
