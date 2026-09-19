@@ -7,7 +7,7 @@ use burn::{
     tensor::backend::{AutodiffBackend, Backend},
 };
 use hex_go::ai::{
-    backend::{CpuBackend, CudaBackend, cpu_device, cuda_device, switch_model_backend},
+    backend::{CpuBackend, CudaBackend, CudaDevice, cpu_device, cuda_device, switch_model_backend},
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
@@ -315,11 +315,11 @@ impl Pipeline {
         model
     }
 
-    pub fn evaluate<B: Backend>(
+    pub fn evaluate(
         &self,
-        candidate: HexGoModel<B>,
-        baseline: HexGoModel<B>,
-        device: &B::Device,
+        candidate: HexGoModel<CudaBackend>,
+        baseline: HexGoModel<CudaBackend>,
+        device: &CudaDevice,
     ) -> bool {
         let result = evaluation::start_evaluate(
             candidate,
@@ -403,7 +403,7 @@ impl Pipeline {
 
             let model = self.load_model::<TrainBackend>(self.current_version - 1, train_device);
 
-            let baseline = self.load_model::<TrainBackend>(self.current_version - 1, train_device);
+            let baseline = model.clone();
 
             let path = format!(
                 "data/{}/v{}/self_play.bin.zst",
@@ -454,7 +454,7 @@ impl Pipeline {
 
             let candidate = self.train(model, samples, train_device);
             let success = self.config.no_eval
-                || self.evaluate(candidate.clone(), baseline.clone(), train_device);
+                || self.evaluate(candidate.valid(), baseline.valid(), train_device);
 
             if success {
                 self.save_model(self.current_version, candidate);
