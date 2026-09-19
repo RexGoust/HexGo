@@ -95,6 +95,10 @@ pub struct EvaluateArgs {
     /// Number of MCTS iterations
     #[arg(short, long, default_value_t = 800)]
     pub iterations: u32,
+
+    /// Number of samples per inferring batch
+    #[arg(long, default_value_t = 256)]
+    pub batch_size: usize,
 }
 
 #[derive(Args)]

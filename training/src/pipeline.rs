@@ -290,11 +290,18 @@ impl Pipeline {
 
     pub fn evaluate(
         &self,
-        candidate: &HexGoModel<InferBackend>,
-        baseline: &HexGoModel<InferBackend>,
+        candidate: HexGoModel<InferBackend>,
+        baseline: HexGoModel<InferBackend>,
+        device: InferDevice,
     ) -> bool {
-        let result =
-            evaluation::start_evaluate(candidate, baseline, EVALUATE_GAMES, EVALUATE_ITERATIONS);
+        let result = evaluation::start_evaluate(
+            candidate,
+            baseline,
+            device,
+            self.config.batch_size,
+            EVALUATE_GAMES,
+            EVALUATE_ITERATIONS,
+        );
 
         result.score_rate >= MIN_SCORE_RATE || self.config.force_save
     }
@@ -420,7 +427,8 @@ impl Pipeline {
 
             let candidate = self.train(model, samples, train_device);
             let candidate = switch_model_backend(candidate, infer_device);
-            let success = self.config.no_eval || self.evaluate(&candidate, &baseline);
+            let success =
+                self.config.no_eval || self.evaluate(candidate.clone(), baseline, *infer_device);
 
             if success {
                 self.save_model(self.current_version, candidate);

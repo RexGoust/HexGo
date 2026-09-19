@@ -1,9 +1,9 @@
 use std::fmt;
 
+use burn::tensor::backend::Backend;
 use hex_go::{
     ai::{
-        backend::default_infer_device,
-        burn_neural_network::BurnNeuralNetwork,
+        backend::{InferDevice, default_infer_device},
         model::{HexGoModel, store::*},
         neural_mcts::{NeuralConfig, NeuralMcts},
         search::Search,
@@ -17,7 +17,12 @@ use hex_go::{
 };
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{argument::EvaluateArgs, sampler::sample_action_by_temperature};
+use crate::{
+    argument::EvaluateArgs,
+    model_type::ModelType,
+    sampler::sample_action_by_temperature,
+    train_network::{Job, TrainNetwork},
+};
 
 use hex_go::ai::backend::InferBackend;
 
@@ -54,6 +59,8 @@ pub struct EvaluationConfig {
     pub games: usize,
 
     pub iterations: usize,
+
+    pub batch_size: usize,
 }
 
 impl From<EvaluateArgs> for EvaluationConfig {
@@ -63,6 +70,7 @@ impl From<EvaluateArgs> for EvaluationConfig {
             baseline: args.baseline,
             games: args.games as usize,
             iterations: args.iterations as usize,
+            batch_size: args.batch_size,
         }
     }
 }
@@ -79,31 +87,25 @@ pub fn create_evaluate(config: EvaluationConfig) {
     let candidate = load_model::<InferBackend>(config.candidate, &device);
     let baseline = load_model::<InferBackend>(config.baseline, &device);
 
-    start_evaluate(&candidate, &baseline, config.games, config.iterations);
+    start_evaluate(
+        candidate,
+        baseline,
+        device,
+        config.batch_size,
+        config.games,
+        config.iterations,
+    );
 }
 
 pub fn start_evaluate(
-    candidate: &HexGoModel<InferBackend>,
-    baseline: &HexGoModel<InferBackend>,
+    candidate: HexGoModel<InferBackend>,
+    baseline: HexGoModel<InferBackend>,
+    device: InferDevice,
+    batch_size: usize,
     games: usize,
     iterations: usize,
 ) -> EvaluationResult {
-    let result = evaluate_model(
-        || {
-            NeuralMcts::new(
-                BurnNeuralNetwork::from_model(candidate),
-                NeuralConfig::default(),
-            )
-        },
-        || {
-            NeuralMcts::new(
-                BurnNeuralNetwork::from_model(baseline),
-                NeuralConfig::default(),
-            )
-        },
-        games,
-        iterations,
-    );
+    let result = evaluate_model(candidate, baseline, device, batch_size, games, iterations);
 
     println!("evaluate result: {}", result);
     result
@@ -211,30 +213,62 @@ fn calculate_result(results: impl IntoIterator<Item = (usize, GameResult)>) -> E
     }
 }
 
-fn evaluate_model<S, FC, FB>(
-    candidate: FC,
-    baseline: FB,
+fn get_model_type<B: Backend>(model: &HexGoModel<B>) -> ModelType {
+    match &model {
+        HexGoModel::Gnn(_) => ModelType::Gnn,
+        HexGoModel::Mlp(_) => ModelType::Mlp,
+    }
+}
+
+fn evaluate_model<B: Backend>(
+    candidate: HexGoModel<B>,
+    baseline: HexGoModel<B>,
+    device: B::Device,
+    batch_size: usize,
     games: usize,
     iterations: usize,
 ) -> EvaluationResult
 where
-    S: Search,
-    FC: Fn() -> S + Sync,
-    FB: Fn() -> S + Sync,
 {
+    let cand_type = get_model_type(&candidate);
+    let base_type = get_model_type(&baseline);
+
+    let (cand_tx, cand_rx) = crossbeam_channel::bounded::<Job>(4096);
+    let (base_tx, base_rx) = crossbeam_channel::bounded::<Job>(4096);
+
+    let cand_device = device.clone();
+    let cand_handle = std::thread::spawn(move || {
+        TrainNetwork::serve(cand_rx, candidate, cand_device, batch_size);
+    });
+    let base_handle = std::thread::spawn(move || {
+        TrainNetwork::serve(base_rx, baseline, device, batch_size);
+    });
+
     let results: Vec<(usize, GameResult)> = (0..games)
         .into_par_iter()
         .map(|index| {
             let mut white = if index % 2 == 0 {
-                baseline()
+                NeuralMcts::new(
+                    TrainNetwork::new(base_tx.clone(), base_type),
+                    NeuralConfig::default(),
+                )
             } else {
-                candidate()
+                NeuralMcts::new(
+                    TrainNetwork::new(cand_tx.clone(), cand_type),
+                    NeuralConfig::default(),
+                )
             };
 
             let mut black = if index % 2 == 0 {
-                candidate()
+                NeuralMcts::new(
+                    TrainNetwork::new(cand_tx.clone(), cand_type),
+                    NeuralConfig::default(),
+                )
             } else {
-                baseline()
+                NeuralMcts::new(
+                    TrainNetwork::new(base_tx.clone(), base_type),
+                    NeuralConfig::default(),
+                )
             };
 
             let mut game = create_game();
@@ -244,6 +278,12 @@ where
             (index, result)
         })
         .collect();
+
+    drop(cand_tx);
+    drop(base_tx);
+    cand_handle.join().unwrap();
+    base_handle.join().unwrap();
+
     calculate_result(results)
 }
 
