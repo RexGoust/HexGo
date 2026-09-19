@@ -12,7 +12,7 @@ pub fn self_play(args: PlayArgs) {
         model,
         device,
         args.model_type,
-        args.batch_size,
+        args.infer_size,
         args.games as usize,
         args.iterations as usize,
     );

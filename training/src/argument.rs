@@ -76,6 +76,10 @@ pub struct TrainArgs {
     /// Skip the evaluation step after training
     #[arg(long)]
     pub no_eval: bool,
+
+    /// Number of samples per inferring batch
+    #[arg(long, default_value_t = 64)]
+    pub infer_size: usize,
 }
 
 #[derive(Args)]
@@ -97,8 +101,8 @@ pub struct EvaluateArgs {
     pub iterations: u32,
 
     /// Number of samples per inferring batch
-    #[arg(long, default_value_t = 256)]
-    pub batch_size: usize,
+    #[arg(long, default_value_t = 64)]
+    pub infer_size: usize,
 }
 
 #[derive(Args)]
@@ -135,8 +139,8 @@ pub struct PlayArgs {
     pub model_type: ModelType,
 
     /// Number of samples per inferring batch
-    #[arg(long, default_value_t = 256)]
-    pub batch_size: usize,
+    #[arg(long, default_value_t = 64)]
+    pub infer_size: usize,
 }
 
 #[cfg(test)]

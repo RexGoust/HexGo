@@ -65,6 +65,8 @@ pub struct TrainingConfig {
     pub reuse_data: bool,
 
     pub no_eval: bool,
+
+    pub infer_size: usize,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -82,6 +84,7 @@ impl From<TrainArgs> for TrainingConfig {
             model_type: args.model_type,
             reuse_data: args.reuse_data,
             no_eval: args.no_eval,
+            infer_size: args.infer_size,
         }
     }
 }
@@ -227,7 +230,7 @@ impl Pipeline {
             model.clone(),
             *device,
             self.config.model_type,
-            self.config.batch_size,
+            self.config.infer_size,
             self.config.games,
             self.config.iterations,
         );
@@ -298,7 +301,7 @@ impl Pipeline {
             candidate,
             baseline,
             device,
-            self.config.batch_size,
+            self.config.infer_size,
             EVALUATE_GAMES,
             EVALUATE_ITERATIONS,
         );
@@ -470,6 +473,7 @@ mod tests {
             model_type: ModelType::Mlp,
             reuse_data: false,
             no_eval: false,
+            infer_size: 1,
         })
     }
 

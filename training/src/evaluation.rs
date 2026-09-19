@@ -127,7 +127,7 @@ pub struct EvaluationConfig {
 
     pub iterations: usize,
 
-    pub batch_size: usize,
+    pub infer_size: usize,
 }
 
 impl From<EvaluateArgs> for EvaluationConfig {
@@ -137,7 +137,7 @@ impl From<EvaluateArgs> for EvaluationConfig {
             baseline: args.baseline,
             games: args.games as usize,
             iterations: args.iterations as usize,
-            batch_size: args.batch_size,
+            infer_size: args.infer_size,
         }
     }
 }
@@ -158,7 +158,7 @@ pub fn create_evaluate(config: EvaluationConfig) {
         candidate,
         baseline,
         device,
-        config.batch_size,
+        config.infer_size,
         config.games,
         config.iterations,
     );
