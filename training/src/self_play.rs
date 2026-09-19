@@ -21,7 +21,7 @@ use crate::{
     dataset::TrainingSample,
     model_type::ModelType,
     sampler::sample_action_by_temperature,
-    train_network::TrainNetwork,
+    train_network::forward_batch,
 };
 use rayon::prelude::*;
 
@@ -179,7 +179,7 @@ where
                 continue;
             }
 
-            let (policies, values) = TrainNetwork::forward_batch(&model, &device, &adj, &inputs);
+            let (policies, values) = forward_batch(&model, &device, &adj, &inputs);
 
             let mut to_update: Vec<&mut ActiveGame> = games
                 .iter_mut()
