@@ -42,11 +42,26 @@ pub struct NeuralNetworkResource {
     pub network: Arc<BurnNeuralNetwork>,
 }
 
-fn choose_ai_move(game: Game, network: Arc<BurnNeuralNetwork>) -> Option<VertexId> {
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct AiConfig {
+    pub iterations: usize,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self { iterations: 1000 }
+    }
+}
+
+fn choose_ai_move(
+    game: Game,
+    network: Arc<BurnNeuralNetwork>,
+    iterations: usize,
+) -> Option<VertexId> {
     //let mut mcts = Mcts::new();
     let mut mcts = NeuralMcts::new(network, NeuralConfig { add_noise: true });
     let t = Timer::now();
-    let action = mcts.choose_action(&game, 1000);
+    let action = mcts.choose_action(&game, iterations);
     if game.status() == GameStatus::Playing {
         info!("MCTS took {:.2} ms", t.elapsed_ms());
     }
@@ -64,6 +79,7 @@ pub(crate) fn update_ai(
     mut ai: ResMut<AiState>,
     worker: Res<WorkerResource>,
     network: Res<NeuralNetworkResource>,
+    config: Option<Res<AiConfig>>,
 ) {
     if session.0.status() != GameStatus::Playing {
         ai.future = None;
@@ -114,8 +130,13 @@ pub(crate) fn update_ai(
     let game = session.0.game().clone();
 
     let network = network.network.clone();
+    let iterations = config.map(|c| c.iterations).unwrap_or(1000);
 
-    ai.future = Some(worker.0.execute(move || choose_ai_move(game, network)));
+    ai.future = Some(
+        worker
+            .0
+            .execute(move || choose_ai_move(game, network, iterations)),
+    );
 }
 
 #[cfg(test)]
@@ -136,6 +157,7 @@ mod tests {
             .insert_resource(NeuralNetworkResource {
                 network: Arc::new(BurnNeuralNetwork::load()),
             })
+            .insert_resource(AiConfig { iterations: 10 })
             .init_resource::<AiState>()
             .add_systems(Update, update_ai);
 
@@ -164,7 +186,7 @@ mod tests {
 
         // Wait for AI to finish calculation.
         for _ in 0..100 {
-            sleep(Duration::from_millis(100));
+            sleep(Duration::from_millis(50));
             app.update();
             if app.world().resource::<SessionResource>().0.current_player() == Black {
                 break;
