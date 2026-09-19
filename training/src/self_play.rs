@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use burn::tensor::backend::Backend;
+use burn::{Tensor, tensor::backend::Backend};
 use hex_go::{
     ai::{
-        encoder::{encode_game_gnn, encode_game_mlp},
+        encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
         model::HexGoModel,
-        neural_mcts::{NeuralConfig, NeuralMcts},
+        neural_mcts::StepState::{self, NeedsEvaluation},
         search::Search,
     },
     board_layout::BoardDefinition,
@@ -17,10 +17,11 @@ use hex_go::{
 };
 
 use crate::{
+    active_game::{ActiveGame, MAX_ACTIONS, create_game, policy_to_dense},
     dataset::TrainingSample,
     model_type::ModelType,
     sampler::sample_action_by_temperature,
-    train_network::{Job, TrainNetwork},
+    train_network::TrainNetwork,
 };
 use rayon::prelude::*;
 
@@ -28,18 +29,6 @@ pub struct SelfPlayPosition {
     pub state: Vec<f32>,
     pub policy: Vec<f32>,
     pub player: Player,
-}
-
-const MAX_ACTIONS: usize = 1000;
-
-fn policy_to_dense(policy: &[(Action, f32)]) -> Vec<f32> {
-    let mut result = vec![0.0; ACTION_SIZE];
-
-    for &(action, probability) in policy {
-        result[action.index()] = probability;
-    }
-
-    result
 }
 
 pub fn play_game<S: Search>(
@@ -122,12 +111,6 @@ pub fn play_game<S: Search>(
     to_training_samples(positions, result)
 }
 
-fn create_game() -> Game {
-    let board = BoardDefinition::compact().graph().clone();
-
-    Game::new(board)
-}
-
 pub fn generate_self_play_games_local<S, F>(
     model_type: ModelType,
     games: usize,
@@ -154,36 +137,79 @@ pub fn generate_self_play_games_batched<B>(
     device: B::Device,
     model_type: ModelType,
     batch_size: usize,
-    games: usize,
+    total_games: usize,
     iterations: usize,
 ) -> Vec<TrainingSample>
 where
     B: Backend,
 {
-    let (tx, rx) = crossbeam_channel::bounded::<Job>(4096);
+    let mut completed_samples = Vec::new();
+    let mut completed_games = 0;
+    let mut started_games = 0;
 
-    let worker_handle = std::thread::spawn(move || {
-        TrainNetwork::serve(rx, model, device, batch_size);
-    });
+    let adj = match &model {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<B>(&board, &device)
+        }
+        _ => Tensor::zeros([1, 1], &device),
+    };
 
-    let result = (0..games)
-        .into_par_iter()
-        .flat_map(|_| {
-            let mut game = create_game();
-            let mut mcts = NeuralMcts::new(
-                TrainNetwork::new(tx.clone(), model_type),
-                NeuralConfig { add_noise: true },
-            );
-            //let mut mcts = NeuralMcts::new(DummyNetwork);
-            play_game(model_type, &mut game, &mut mcts, iterations)
-        })
-        .collect();
+    let mut games: Vec<ActiveGame> = (0..batch_size).map(|_| ActiveGame::new()).collect();
 
-    drop(tx);
+    while completed_games < total_games {
+        for _ in 0..iterations {
+            games.par_iter_mut().for_each(|g| {
+                g.state = g.mcts.step_select(&g.game);
+                if let StepState::NeedsEvaluation { leaf_game, .. } = &g.state {
+                    g.input_buf = match model_type {
+                        ModelType::Mlp => encode_game_mlp(leaf_game, leaf_game.current_player()),
+                        ModelType::Gnn => encode_game_gnn(leaf_game, leaf_game.current_player()),
+                    };
+                }
+            });
+        }
 
-    worker_handle.join().unwrap();
+        let inputs: Vec<&Vec<f32>> = games
+            .iter_mut()
+            .filter(|game| matches!(&game.state, NeedsEvaluation { .. }))
+            .map(|game| &game.input_buf)
+            .collect();
 
-    result
+        let (policies, values) = TrainNetwork::forward_batch(&model, &device, &adj, &inputs);
+
+        let mut to_update: Vec<&mut ActiveGame> = games
+            .iter_mut()
+            .filter(|g| matches!(&g.state, StepState::NeedsEvaluation { .. }))
+            .collect();
+
+        to_update.par_iter_mut().enumerate().for_each(|(i, g)| {
+            if let StepState::NeedsEvaluation { node, leaf_game } = &g.state {
+                g.mcts
+                    .step_update(*node, leaf_game, &policies[i], values[i]);
+            }
+        });
+
+        games.par_iter_mut().for_each(|g| {
+            g.step_action(model_type);
+        });
+
+        for g in games.iter_mut() {
+            if g.is_finished() {
+                completed_samples.extend(g.finish_game());
+                completed_games += 1;
+
+                if started_games < total_games {
+                    started_games += 1;
+                    *g = ActiveGame::new();
+                }
+            }
+        }
+
+        games.retain(|g| !g.is_finished());
+    }
+
+    Vec::new()
 }
 
 pub fn to_training_samples(

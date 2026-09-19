@@ -5,9 +5,9 @@ use crate::{
     game::{Game, GameResult, action::Action, player::Player},
 };
 
-pub enum StepSelectResult {
+pub enum StepState {
     Terminal,
-
+    Initial,
     NeedsEvaluation { node: usize, leaf_game: Game },
 }
 
@@ -211,16 +211,16 @@ impl<N: NeuralNetwork> NeuralMcts<N> {
         true
     }
 
-    pub fn step_select(&mut self, root_game: &Game) -> StepSelectResult {
+    pub fn step_select(&mut self, root_game: &Game) -> StepState {
         let (node, leaf_game) = self.select(root_game);
 
         if let Some(result) = leaf_game.result() {
             let player = leaf_game.current_player();
             let value = Self::terminal_value(result, player);
             self.backpropagate(node, value);
-            StepSelectResult::Terminal
+            StepState::Terminal
         } else {
-            StepSelectResult::NeedsEvaluation { node, leaf_game }
+            StepState::NeedsEvaluation { node, leaf_game }
         }
     }
 
@@ -289,12 +289,13 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
 
         for _ in 0..iterations {
             match self.step_select(game) {
-                StepSelectResult::Terminal => continue,
-                StepSelectResult::NeedsEvaluation { node, leaf_game } => {
+                StepState::Terminal => continue,
+                StepState::NeedsEvaluation { node, leaf_game } => {
                     let player = leaf_game.current_player();
                     let evaluation = self.network.evaluate(&leaf_game, player);
                     self.step_update(node, &leaf_game, &evaluation.policy, evaluation.value);
                 }
+                _ => continue,
             }
         }
 
