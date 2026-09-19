@@ -14,7 +14,7 @@ use crate::ai::{
 
 use crate::{
     ai::{
-        encoder::{INPUT_SIZE, encode_game_mlp},
+        encoder::{MLP_INPUT_SIZE, encode_game_mlp},
         neural_network::{Evaluation, NeuralNetwork},
     },
     game::{
@@ -83,7 +83,7 @@ impl NeuralNetwork for BurnNeuralNetwork {
                 let input = encode_game_mlp(game, player);
 
                 let input_tensor = Tensor::<InferBackend, 2>::from_data(
-                    TensorData::new(input, [1, INPUT_SIZE]),
+                    TensorData::new(input, [1, MLP_INPUT_SIZE]),
                     &self.device,
                 );
 

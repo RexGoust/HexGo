@@ -129,6 +129,10 @@ pub struct PlayArgs {
     /// Model storage format to use for saving checkpoints
     #[arg(long, value_enum, default_value_t = ModelType::Mlp)]
     pub model_type: ModelType,
+
+    /// Number of samples per inferring batch
+    #[arg(long, default_value_t = 256)]
+    pub batch_size: usize,
 }
 
 #[cfg(test)]

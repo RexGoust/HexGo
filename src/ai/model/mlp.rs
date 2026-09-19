@@ -5,7 +5,7 @@ use burn::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::ai::encoder::INPUT_SIZE;
+use crate::ai::encoder::MLP_INPUT_SIZE;
 use crate::ai::model::{ModelOutput, POLICY_SIZE};
 
 const DEFAULT_HIDDEN_SIZE: usize = 128;
@@ -35,7 +35,7 @@ pub struct MlpModel<B: Backend> {
 impl<B: Backend> MlpModel<B> {
     pub fn new(config: MlpModelConfig, device: &B::Device) -> Self {
         Self {
-            fc1: LinearConfig::new(INPUT_SIZE, config.hidden_size).init(device),
+            fc1: LinearConfig::new(MLP_INPUT_SIZE, config.hidden_size).init(device),
             fc2: LinearConfig::new(config.hidden_size, config.hidden_size).init(device),
             policy: LinearConfig::new(config.hidden_size, POLICY_SIZE).init(device),
             value: LinearConfig::new(config.hidden_size, 1).init(device),

@@ -10,6 +10,7 @@ mod sampler;
 mod self_play;
 mod tensor;
 mod train;
+mod train_network;
 use clap::Parser;
 
 use crate::{

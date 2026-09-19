@@ -35,7 +35,7 @@ mod tests {
     use super::*;
     use burn::Tensor;
     use hex_go::ai::{
-        encoder::INPUT_SIZE,
+        encoder::MLP_INPUT_SIZE,
         model::{MlpModelConfig, ModelConfig, store::StoreType},
     };
     use rand::RngExt;
@@ -47,7 +47,7 @@ mod tests {
         let config = MlpModelConfig { hidden_size: 64 };
         let model = HexGoModel::<InferBackend>::new(ModelConfig::Mlp(config.clone()), &device);
 
-        let input = Tensor::<InferBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let input = Tensor::<InferBackend, 2>::zeros([1, MLP_INPUT_SIZE], &device);
         let expected_output = match &model {
             HexGoModel::Mlp(m) => m.forward(input.clone()),
             HexGoModel::Gnn(_) => unreachable!(),

@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 
+use burn::tensor::backend::Backend;
 use hex_go::{
     ai::{
         encoder::{encode_game_gnn, encode_game_mlp},
+        model::HexGoModel,
+        neural_mcts::{NeuralConfig, NeuralMcts},
         search::Search,
     },
     board_layout::BoardDefinition,
@@ -14,7 +17,10 @@ use hex_go::{
 };
 
 use crate::{
-    dataset::TrainingSample, model_type::ModelType, sampler::sample_action_by_temperature,
+    dataset::TrainingSample,
+    model_type::ModelType,
+    sampler::sample_action_by_temperature,
+    train_network::{Job, TrainNetwork},
 };
 use rayon::prelude::*;
 
@@ -122,7 +128,7 @@ fn create_game() -> Game {
     Game::new(board)
 }
 
-pub fn generate_self_play_games<S, F>(
+pub fn generate_self_play_games_local<S, F>(
     model_type: ModelType,
     games: usize,
     iterations: usize,
@@ -141,6 +147,43 @@ where
             play_game(model_type, &mut game, &mut mcts, iterations)
         })
         .collect()
+}
+
+pub fn generate_self_play_games_batched<B>(
+    model: HexGoModel<B>,
+    device: B::Device,
+    model_type: ModelType,
+    batch_size: usize,
+    games: usize,
+    iterations: usize,
+) -> Vec<TrainingSample>
+where
+    B: Backend,
+{
+    let (tx, rx) = crossbeam_channel::bounded::<Job>(4096);
+
+    let worker_handle = std::thread::spawn(move || {
+        TrainNetwork::serve(rx, model, device, batch_size);
+    });
+
+    let result = (0..games)
+        .into_par_iter()
+        .flat_map(|_| {
+            let mut game = create_game();
+            let mut mcts = NeuralMcts::new(
+                TrainNetwork::new(tx.clone(), model_type),
+                NeuralConfig { add_noise: true },
+            );
+            //let mut mcts = NeuralMcts::new(DummyNetwork);
+            play_game(model_type, &mut game, &mut mcts, iterations)
+        })
+        .collect();
+
+    drop(tx);
+
+    worker_handle.join().unwrap();
+
+    result
 }
 
 pub fn to_training_samples(

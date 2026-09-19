@@ -172,7 +172,7 @@ pub fn save_model<B: Backend>(path: impl AsRef<Path>, model: HexGoModel<B>, stor
 mod tests {
     use super::*;
     use crate::ai::backend::InferBackend as TestBackend;
-    use crate::ai::encoder::INPUT_SIZE;
+    use crate::ai::encoder::MLP_INPUT_SIZE;
     use burn::Tensor;
     use rand::RngExt;
 
@@ -182,7 +182,7 @@ mod tests {
         let model =
             HexGoModel::<TestBackend>::new(ModelConfig::Mlp(MlpModelConfig::default()), &device);
 
-        let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let input = Tensor::<TestBackend, 2>::zeros([1, MLP_INPUT_SIZE], &device);
         let expected_output = match &model {
             HexGoModel::Mlp(m) => m.forward(input.clone()),
             HexGoModel::Gnn(_) => unreachable!(),
@@ -249,7 +249,7 @@ mod tests {
         let config = MlpModelConfig { hidden_size: 64 };
         let model = HexGoModel::<TestBackend>::new(ModelConfig::Mlp(config.clone()), &device);
 
-        let input = Tensor::<TestBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let input = Tensor::<TestBackend, 2>::zeros([1, MLP_INPUT_SIZE], &device);
         let expected_output = match &model {
             HexGoModel::Mlp(m) => m.forward(input.clone()),
             HexGoModel::Gnn(_) => unreachable!(),

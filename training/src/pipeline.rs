@@ -5,16 +5,15 @@ use burn::{
 };
 use hex_go::ai::{
     backend::{
-        InferBackend, TrainDevice, default_infer_device, default_train_device, switch_model_backend,
+        InferBackend, InferDevice, TrainDevice, default_infer_device, default_train_device,
+        switch_model_backend,
     },
-    burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
         HexGoModel, MlpModel, MlpModelConfig, ModelConfig,
         gnn::{GnnModel, GnnModelConfig},
         store::{self, StoreType},
     },
-    neural_mcts::{NeuralConfig, NeuralMcts},
 };
 use rand::seq::SliceRandom;
 
@@ -23,7 +22,7 @@ use crate::{
     dataset::{self, TrainingSample},
     evaluation::{self},
     model_type::ModelType,
-    self_play::generate_self_play_games,
+    self_play::{generate_self_play_games_batched, generate_self_play_games_local},
     train::{train_on_samples, validation_step},
 };
 use hex_go::ai::backend::TrainBackend as InnerTrainBackend;
@@ -103,7 +102,7 @@ impl Pipeline {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
-        let mut samples = generate_self_play_games(
+        let mut samples = generate_self_play_games_local(
             self.config.model_type,
             self.config.games,
             self.config.iterations,
@@ -219,17 +218,18 @@ impl Pipeline {
         all
     }
 
-    fn generate_self_play_data(&self, model: &HexGoModel<InferBackend>) -> Vec<TrainingSample> {
-        let mut samples = generate_self_play_games(
+    fn generate_self_play_data(
+        &self,
+        model: &HexGoModel<InferBackend>,
+        device: &InferDevice,
+    ) -> Vec<TrainingSample> {
+        let mut samples = generate_self_play_games_batched(
+            model.clone(),
+            *device,
             self.config.model_type,
+            self.config.batch_size,
             self.config.games,
             self.config.iterations,
-            || {
-                NeuralMcts::new(
-                    BurnNeuralNetwork::from_model(model),
-                    NeuralConfig { add_noise: true },
-                )
-            },
         );
 
         samples.shuffle(&mut rand::rng());
@@ -379,7 +379,7 @@ impl Pipeline {
 
             if !self.config.reuse_data || !file_exists {
                 let infer_model = &baseline;
-                let samples = self.generate_self_play_data(infer_model);
+                let samples = self.generate_self_play_data(infer_model, infer_device);
 
                 println!(
                     "v{}: generated {} samples",

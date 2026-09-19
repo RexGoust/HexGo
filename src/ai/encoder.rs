@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-pub const INPUT_SIZE: usize = 88 * 3;
+pub const MLP_INPUT_SIZE: usize = 88 * 3;
 pub const VERTEX_COUNT: usize = 88;
 /// Encodes the game state from the given player's perspective.
 ///

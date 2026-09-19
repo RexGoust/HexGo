@@ -1,25 +1,22 @@
-use crate::{argument::PlayArgs, dataset::save_samples, self_play::generate_self_play_games};
+use crate::{
+    argument::PlayArgs, dataset::save_samples, self_play::generate_self_play_games_batched,
+};
 use hex_go::ai::{
     backend::*,
-    burn_neural_network::BurnNeuralNetwork,
     model::{HexGoModel, store::load_model},
-    neural_mcts::{NeuralConfig, NeuralMcts},
 };
 use rand::seq::SliceRandom;
 pub fn self_play(args: PlayArgs) {
     let device = default_infer_device();
     let model: HexGoModel<InferBackend> = load_model(args.model, &device);
 
-    let mut samples = generate_self_play_games(
+    let mut samples = generate_self_play_games_batched(
+        model,
+        device,
         args.model_type,
+        args.batch_size,
         args.games as usize,
         args.iterations as usize,
-        || {
-            NeuralMcts::new(
-                BurnNeuralNetwork::from_model(&model),
-                NeuralConfig { add_noise: true },
-            )
-        },
     );
 
     samples.shuffle(&mut rand::rng());
