@@ -1,8 +1,12 @@
 use std::path::Path;
 
-use burn::{backend::Autodiff, module::AutodiffModule, optim::AdamConfig};
+use burn::{
+    backend::Autodiff, module::AutodiffModule, optim::AdamConfig, tensor::backend::Backend,
+};
 use hex_go::ai::{
-    backend::default_device,
+    backend::{
+        InferBackend, TrainDevice, default_infer_device, default_train_device, switch_model_backend,
+    },
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
@@ -22,9 +26,9 @@ use crate::{
     self_play::generate_self_play_games,
     train::{train_on_samples, validation_step},
 };
-use hex_go::ai::backend::{Backend as InnerBackend, Device};
+use hex_go::ai::backend::TrainBackend as InnerTrainBackend;
 
-type Backend = Autodiff<InnerBackend>;
+type TrainBackend = Autodiff<InnerTrainBackend>;
 
 const EVALUATE_GAMES: usize = 200;
 const EVALUATE_ITERATIONS: usize = 800;
@@ -95,7 +99,7 @@ impl Pipeline {
             config,
         }
     }
-    fn train_version_v0(&self, device: &Device) {
+    fn train_version_v0(&self, device: &TrainDevice) {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
@@ -112,12 +116,14 @@ impl Pipeline {
         samples.shuffle(&mut rand::rng());
 
         let model = match self.config.model_type {
-            ModelType::Mlp => {
-                HexGoModel::Mlp(MlpModel::<Backend>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
-            }
-            ModelType::Gnn => {
-                HexGoModel::Gnn(GnnModel::<Backend>::new(GnnModelConfig::default(), device))
-            }
+            ModelType::Mlp => HexGoModel::Mlp(MlpModel::<TrainBackend>::new(
+                CURRENT_TRAIN_MODEL_CONFIG,
+                device,
+            )),
+            ModelType::Gnn => HexGoModel::Gnn(GnnModel::<TrainBackend>::new(
+                GnnModelConfig::default(),
+                device,
+            )),
         };
 
         let model = self.train(model, samples, device);
@@ -127,12 +133,12 @@ impl Pipeline {
         println!("v0: train finished, time consumed: {:?}", t.elapsed());
     }
 
-    fn load_model(&self, version: usize, device: &Device) -> HexGoModel<Backend> {
+    fn load_model<B: Backend>(&self, version: usize, device: &B::Device) -> HexGoModel<B> {
         let path = format!("checkpoints/{}/v{}/model", self.config.model_type, version);
         store::load_model(path, device)
     }
 
-    fn save_model(&self, version: usize, model: HexGoModel<Backend>) {
+    fn save_model<B: Backend>(&self, version: usize, model: HexGoModel<B>) {
         let path = format!("checkpoints/{}/v{}/model", self.config.model_type, version);
         store::save_model(path, model, self.config.store_type);
     }
@@ -213,16 +219,14 @@ impl Pipeline {
         all
     }
 
-    fn generate_self_play_data(&self, model: &HexGoModel<Backend>) -> Vec<TrainingSample> {
-        let model = model.valid();
-
+    fn generate_self_play_data(&self, model: &HexGoModel<InferBackend>) -> Vec<TrainingSample> {
         let mut samples = generate_self_play_games(
             self.config.model_type,
             self.config.games,
             self.config.iterations,
             || {
                 NeuralMcts::new(
-                    BurnNeuralNetwork::from_model(&model),
+                    BurnNeuralNetwork::from_model(model),
                     NeuralConfig { add_noise: true },
                 )
             },
@@ -245,10 +249,10 @@ impl Pipeline {
 
     fn train(
         &self,
-        mut model: HexGoModel<Backend>,
+        mut model: HexGoModel<TrainBackend>,
         samples: Vec<TrainingSample>,
-        device: &Device,
-    ) -> HexGoModel<Backend> {
+        device: &TrainDevice,
+    ) -> HexGoModel<TrainBackend> {
         let (mut train_samples, validation_samples) = Self::split_samples(samples);
 
         println!(
@@ -286,15 +290,11 @@ impl Pipeline {
 
     pub fn evaluate(
         &self,
-        candidate: &HexGoModel<Backend>,
-        baseline: &HexGoModel<Backend>,
+        candidate: &HexGoModel<InferBackend>,
+        baseline: &HexGoModel<InferBackend>,
     ) -> bool {
-        let result = evaluation::start_evaluate(
-            &candidate.valid(),
-            &baseline.valid(),
-            EVALUATE_GAMES,
-            EVALUATE_ITERATIONS,
-        );
+        let result =
+            evaluation::start_evaluate(candidate, baseline, EVALUATE_GAMES, EVALUATE_ITERATIONS);
 
         result.score_rate >= MIN_SCORE_RATE || self.config.force_save
     }
@@ -345,12 +345,14 @@ impl Pipeline {
     }
 
     pub fn run(&mut self) {
-        let device = &default_device();
+        let train_device = &default_train_device();
+        let infer_device = &default_infer_device();
+
         if self.current_version == 0 {
             if self.should_skip_version(0) {
                 self.current_version = 1;
             } else {
-                self.train_version_v0(device);
+                self.train_version_v0(train_device);
                 self.current_version = 1;
             }
         }
@@ -365,9 +367,9 @@ impl Pipeline {
 
             println!("v{}: start training...", self.current_version);
 
-            let model = self.load_model(self.current_version - 1, device);
+            let model = self.load_model(self.current_version - 1, train_device);
 
-            let baseline = model.clone();
+            let baseline = switch_model_backend(model.clone(), infer_device);
             let path = format!(
                 "data/{}/v{}/self_play.bin.zst",
                 self.config.model_type,
@@ -376,7 +378,8 @@ impl Pipeline {
             let file_exists = Path::new(&path).is_file();
 
             if !self.config.reuse_data || !file_exists {
-                let samples = self.generate_self_play_data(&model);
+                let infer_model = &baseline;
+                let samples = self.generate_self_play_data(infer_model);
 
                 println!(
                     "v{}: generated {} samples",
@@ -403,20 +406,20 @@ impl Pipeline {
                     if model.config() == ModelConfig::Mlp(CURRENT_TRAIN_MODEL_CONFIG) {
                         model
                     } else {
-                        HexGoModel::Mlp(MlpModel::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+                        HexGoModel::Mlp(MlpModel::new(CURRENT_TRAIN_MODEL_CONFIG, train_device))
                     }
                 }
                 ModelType::Gnn => {
                     if model.config() == ModelConfig::Gnn(GnnModelConfig::default()) {
                         model
                     } else {
-                        HexGoModel::Gnn(GnnModel::new(GnnModelConfig::default(), device))
+                        HexGoModel::Gnn(GnnModel::new(GnnModelConfig::default(), train_device))
                     }
                 }
             };
 
-            let candidate = self.train(model, samples, device);
-
+            let candidate = self.train(model, samples, train_device);
+            let candidate = switch_model_backend(candidate, infer_device);
             let success = self.config.no_eval || self.evaluate(&candidate, &baseline);
 
             if success {

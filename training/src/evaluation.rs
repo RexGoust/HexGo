@@ -2,7 +2,7 @@ use std::fmt;
 
 use hex_go::{
     ai::{
-        backend::default_device,
+        backend::default_infer_device,
         burn_neural_network::BurnNeuralNetwork,
         model::{HexGoModel, store::*},
         neural_mcts::{NeuralConfig, NeuralMcts},
@@ -19,7 +19,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{argument::EvaluateArgs, sampler::sample_action_by_temperature};
 
-use hex_go::ai::backend::Backend;
+use hex_go::ai::backend::InferBackend;
 
 pub struct EvaluationResult {
     pub games: u32,
@@ -75,16 +75,16 @@ pub fn create_evaluate(config: EvaluationConfig) {
         config.candidate, config.baseline
     );
 
-    let device = default_device();
-    let candidate = load_model::<Backend>(config.candidate, &device);
-    let baseline = load_model::<Backend>(config.baseline, &device);
+    let device = default_infer_device();
+    let candidate = load_model::<InferBackend>(config.candidate, &device);
+    let baseline = load_model::<InferBackend>(config.baseline, &device);
 
     start_evaluate(&candidate, &baseline, config.games, config.iterations);
 }
 
 pub fn start_evaluate(
-    candidate: &HexGoModel<Backend>,
-    baseline: &HexGoModel<Backend>,
+    candidate: &HexGoModel<InferBackend>,
+    baseline: &HexGoModel<InferBackend>,
     games: usize,
     iterations: usize,
 ) -> EvaluationResult {

@@ -163,16 +163,16 @@ impl<B: Backend> GnnModel<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::backend::Backend;
+    use crate::ai::backend::InferBackend;
 
     #[test]
     fn gnn_forward_produces_expected_output_shapes() {
         let device = Default::default();
         let config = GnnModelConfig::default();
-        let model = GnnModel::<Backend>::new(config, &device);
+        let model = GnnModel::<InferBackend>::new(config, &device);
 
-        let x = Tensor::<Backend, 2>::zeros([88, FEATURE_DIM], &device).unsqueeze::<3>();
-        let adj = Tensor::<Backend, 2>::zeros([88, 88], &device);
+        let x = Tensor::<InferBackend, 2>::zeros([88, FEATURE_DIM], &device).unsqueeze::<3>();
+        let adj = Tensor::<InferBackend, 2>::zeros([88, 88], &device);
 
         let output = model.forward(x, adj);
 
@@ -188,10 +188,10 @@ mod tests {
             hidden_dim: 32,
             num_vertices: 4,
         };
-        let model = GnnModel::<Backend>::new(config, &device);
+        let model = GnnModel::<InferBackend>::new(config, &device);
 
-        let x = Tensor::<Backend, 2>::zeros([4, FEATURE_DIM], &device).unsqueeze::<3>();
-        let adj = Tensor::<Backend, 2>::zeros([4, 4], &device);
+        let x = Tensor::<InferBackend, 2>::zeros([4, FEATURE_DIM], &device).unsqueeze::<3>();
+        let adj = Tensor::<InferBackend, 2>::zeros([4, 4], &device);
 
         let output = model.forward(x, adj);
 
