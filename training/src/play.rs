@@ -10,7 +10,7 @@ pub fn self_play(args: PlayArgs) {
 
     let mut samples = generate_samples_batched(
         model,
-        device,
+        &device,
         args.model_type,
         args.infer_size,
         args.games as usize,

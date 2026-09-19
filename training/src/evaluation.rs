@@ -157,7 +157,7 @@ pub fn create_evaluate(config: EvaluationConfig) {
     start_evaluate(
         candidate,
         baseline,
-        device,
+        &device,
         config.infer_size,
         config.games,
         config.iterations,
@@ -167,7 +167,7 @@ pub fn create_evaluate(config: EvaluationConfig) {
 pub fn start_evaluate(
     candidate: HexGoModel<InferBackend>,
     baseline: HexGoModel<InferBackend>,
-    device: InferDevice,
+    device: &InferDevice,
     batch_size: usize,
     games: usize,
     iterations: usize,
@@ -330,7 +330,7 @@ fn update_model_evaluations<B: Backend>(
 fn evaluate_model<B: Backend>(
     candidate: HexGoModel<B>,
     baseline: HexGoModel<B>,
-    device: B::Device,
+    device: &B::Device,
     batch_size: usize,
     total_games: usize,
     iterations: usize,
@@ -341,12 +341,12 @@ where
     let base_type = get_model_type(&baseline);
 
     let cand_adj = match &candidate {
-        HexGoModel::Gnn(_) => adjacency_tensor::<B>(BoardDefinition::compact().graph(), &device),
-        _ => Tensor::zeros([1, 1], &device),
+        HexGoModel::Gnn(_) => adjacency_tensor::<B>(BoardDefinition::compact().graph(), device),
+        _ => Tensor::zeros([1, 1], device),
     };
     let base_adj = match &baseline {
-        HexGoModel::Gnn(_) => adjacency_tensor::<B>(BoardDefinition::compact().graph(), &device),
-        _ => Tensor::zeros([1, 1], &device),
+        HexGoModel::Gnn(_) => adjacency_tensor::<B>(BoardDefinition::compact().graph(), device),
+        _ => Tensor::zeros([1, 1], device),
     };
 
     let mut results: Vec<(usize, GameResult)> = Vec::new();
@@ -372,9 +372,9 @@ where
                 }
             });
 
-            update_model_evaluations(&mut games, &candidate, &device, &cand_adj, true);
+            update_model_evaluations(&mut games, &candidate, device, &cand_adj, true);
 
-            update_model_evaluations(&mut games, &baseline, &device, &base_adj, false);
+            update_model_evaluations(&mut games, &baseline, device, &base_adj, false);
         }
 
         games.par_iter_mut().for_each(|g| {

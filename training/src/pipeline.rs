@@ -228,7 +228,7 @@ impl Pipeline {
     ) -> Vec<TrainingSample> {
         let mut samples = generate_samples_batched(
             model.clone(),
-            *device,
+            device,
             self.config.model_type,
             self.config.infer_size,
             self.config.games,
@@ -295,7 +295,7 @@ impl Pipeline {
         &self,
         candidate: HexGoModel<InferBackend>,
         baseline: HexGoModel<InferBackend>,
-        device: InferDevice,
+        device: &InferDevice,
     ) -> bool {
         let result = evaluation::start_evaluate(
             candidate,
@@ -431,7 +431,7 @@ impl Pipeline {
             let candidate = self.train(model, samples, train_device);
             let candidate = switch_model_backend(candidate, infer_device);
             let success =
-                self.config.no_eval || self.evaluate(candidate.clone(), baseline, *infer_device);
+                self.config.no_eval || self.evaluate(candidate.clone(), baseline, infer_device);
 
             if success {
                 self.save_model(self.current_version, candidate);

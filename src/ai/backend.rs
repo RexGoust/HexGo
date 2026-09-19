@@ -48,8 +48,8 @@ pub type TrainBackend = burn::backend::Flex;
 #[cfg(not(any(feature = "cuda")))]
 pub type TrainDevice = burn::backend::flex::FlexDevice;
 
-pub type InferBackend = burn::backend::Flex;
-pub type InferDevice = burn::backend::flex::FlexDevice;
+pub type InferBackend = TrainBackend;
+pub type InferDevice = TrainDevice;
 
 pub fn default_train_device() -> TrainDevice {
     Default::default()

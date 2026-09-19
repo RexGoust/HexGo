@@ -134,7 +134,7 @@ where
 
 pub fn generate_samples_batched<B>(
     model: HexGoModel<B>,
-    device: B::Device,
+    device: &B::Device,
     model_type: ModelType,
     batch_size: usize,
     total_games: usize,
@@ -150,9 +150,9 @@ where
     let adj = match &model {
         HexGoModel::Gnn(_) => {
             let board = BoardDefinition::compact().graph().clone();
-            adjacency_tensor::<B>(&board, &device)
+            adjacency_tensor::<B>(&board, device)
         }
-        _ => Tensor::zeros([1, 1], &device),
+        _ => Tensor::zeros([1, 1], device),
     };
 
     let mut games: Vec<ActiveGame> = (0..started_games).map(|_| ActiveGame::new()).collect();
@@ -179,7 +179,7 @@ where
                 continue;
             }
 
-            let (policies, values) = forward_batch(&model, &device, &adj, &inputs);
+            let (policies, values) = forward_batch(&model, device, &adj, &inputs);
 
             let mut to_update: Vec<&mut ActiveGame> = games
                 .iter_mut()
