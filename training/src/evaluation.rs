@@ -6,7 +6,7 @@ use hex_go::{
         backend::{CpuBackend, CudaBackend, cpu_device, cuda_device, switch_model_backend},
         burn_neural_network::BurnNeuralNetwork,
         dummy_network::DummyNetwork,
-        encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
+        encoder::adjacency_tensor,
         model::{HexGoModel, store::*},
         neural_mcts::{NeuralConfig, NeuralMcts, StepState},
         search::Search,
@@ -18,26 +18,24 @@ use hex_go::{
         player::Player,
     },
 };
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    argument::EvaluateArgs, device::DeviceKind, model_type::ModelType,
+    argument::EvaluateArgs, device::DeviceKind, eval_slot::EvalSlot, model_type::ModelType,
     sampler::sample_action_by_temperature, train_network::forward_batch,
 };
 
-struct ActiveEvalGame {
-    index: usize,
-    game: Game,
-    mcts: NeuralMcts<DummyNetwork>,
-    state: StepState,
-    input_buf: Vec<f32>,
-    actions: usize,
+pub struct ActiveEvalGame {
+    pub index: usize,
+    pub game: Game,
+    pub mcts: NeuralMcts<DummyNetwork>,
+    pub state: StepState,
+    pub input_buf: Vec<f32>,
+    pub actions: usize,
 }
 
 impl ActiveEvalGame {
-    fn new(index: usize) -> Self {
+    pub fn new(index: usize) -> Self {
         let game = create_game();
         let mut mcts = NeuralMcts::new(DummyNetwork, NeuralConfig::default());
         mcts.start_search(&game);
@@ -51,7 +49,7 @@ impl ActiveEvalGame {
         }
     }
 
-    fn is_candidate_turn(&self) -> bool {
+    pub fn is_candidate_turn(&self) -> bool {
         let candidate_black = self.index.is_multiple_of(2);
         match self.game.current_player() {
             Player::Black => candidate_black,
@@ -375,44 +373,6 @@ fn get_model_type<B: Backend>(model: &HexGoModel<B>) -> ModelType {
     }
 }
 
-fn update_model_evaluations<B: Backend>(
-    games: &mut [ActiveEvalGame],
-    model: &HexGoModel<B>,
-    device: &B::Device,
-    adj: &Tensor<B, 2>,
-    is_candidate: bool,
-) {
-    let inputs: Vec<&Vec<f32>> = games
-        .iter()
-        .filter(|g| {
-            matches!(&g.state, StepState::NeedsEvaluation { .. })
-                && g.is_candidate_turn() == is_candidate
-        })
-        .map(|g| &g.input_buf)
-        .collect();
-
-    if inputs.is_empty() {
-        return;
-    }
-
-    let (policies, values) = forward_batch(model, device, adj, &inputs);
-
-    let mut to_update: Vec<&mut ActiveEvalGame> = games
-        .iter_mut()
-        .filter(|g| {
-            matches!(&g.state, StepState::NeedsEvaluation { .. })
-                && g.is_candidate_turn() == is_candidate
-        })
-        .collect();
-
-    to_update.par_iter_mut().enumerate().for_each(|(i, g)| {
-        if let StepState::NeedsEvaluation { node, leaf_game } = &g.state {
-            g.mcts
-                .step_update(*node, leaf_game, &policies[i], values[i]);
-        }
-    });
-}
-
 fn evaluate_model_cuda<B: Backend>(
     candidate: HexGoModel<B>,
     baseline: HexGoModel<B>,
@@ -436,52 +396,94 @@ where
     };
 
     let mut results: Vec<(usize, GameResult)> = Vec::new();
-    let mut completed_games = 0;
-    let mut started_games = batch_size.min(total_games);
+    let mut completed = 0;
 
-    let mut games: Vec<ActiveEvalGame> = (0..started_games).map(ActiveEvalGame::new).collect();
+    let initial_games = batch_size.min(total_games);
+    let count_0 = initial_games.div_ceil(2);
 
-    while completed_games < total_games {
-        for _ in 0..iterations {
-            games.par_iter_mut().for_each(|g| {
-                g.state = g.mcts.step_select(&g.game);
-                if let StepState::NeedsEvaluation { leaf_game, .. } = &g.state {
-                    let model_type = if g.is_candidate_turn() {
-                        cand_type
-                    } else {
-                        base_type
-                    };
-                    g.input_buf = match model_type {
-                        ModelType::Mlp => encode_game_mlp(leaf_game, leaf_game.current_player()),
-                        ModelType::Gnn => encode_game_gnn(leaf_game, leaf_game.current_player()),
-                    };
+    let mut slots = [
+        EvalSlot::new(0..count_0),
+        EvalSlot::new(count_0..initial_games),
+    ];
+    let mut started = slots[0].games.len() + slots[1].games.len();
+
+    std::thread::scope(|s| {
+        let (req_tx, req_rx) =
+            std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>, Vec<Vec<f32>>)>(2);
+
+        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
+        // GPU worker
+        s.spawn(move || {
+            while let Ok((id, cand_inputs, base_inputs)) = req_rx.recv() {
+                let cand_res = if !cand_inputs.is_empty() {
+                    let refs: Vec<&Vec<f32>> = cand_inputs.iter().collect();
+                    forward_batch(&candidate, device, &cand_adj, &refs)
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+
+                let base_res = if !base_inputs.is_empty() {
+                    let refs: Vec<&Vec<f32>> = base_inputs.iter().collect();
+                    forward_batch(&baseline, device, &base_adj, &refs)
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+
+                if resp_tx.send((id, cand_res, base_res)).is_err() {
+                    break;
                 }
-            });
-
-            update_model_evaluations(&mut games, &candidate, device, &cand_adj, true);
-
-            update_model_evaluations(&mut games, &baseline, device, &base_adj, false);
-        }
-
-        games.par_iter_mut().for_each(|g| {
-            g.step_action();
+            }
         });
 
-        for g in games.iter_mut() {
-            if g.is_finished() {
-                results.push((g.index, g.game.result().unwrap()));
-                completed_games += 1;
+        let mut in_flight = 0;
+        for (id, slot) in slots.iter_mut().enumerate() {
+            let (cand_inputs, base_inputs) = slot.select(cand_type, base_type);
+            if !cand_inputs.is_empty() || !base_inputs.is_empty() {
+                req_tx.send((id, cand_inputs, base_inputs)).unwrap();
+                in_flight += 1;
+            }
+        }
 
-                if started_games < total_games {
-                    let next_idx = started_games;
-                    started_games += 1;
-                    *g = ActiveEvalGame::new(next_idx);
+        while in_flight > 0 {
+            let (id, cand_res, base_res) = resp_rx.recv().unwrap();
+            in_flight -= 1;
+
+            let slot = &mut slots[id];
+            slot.update(&cand_res, &base_res);
+            slot.step += 1;
+
+            if slot.step >= iterations {
+                slot.commit_actions(&mut results, &mut completed, &mut started, total_games);
+            }
+
+            if !slot.games.is_empty() && completed < total_games {
+                loop {
+                    let (cand_inputs, base_inputs) = slot.select(cand_type, base_type);
+                    if !cand_inputs.is_empty() || !base_inputs.is_empty() {
+                        req_tx.send((id, cand_inputs, base_inputs)).unwrap();
+                        in_flight += 1;
+                        break;
+                    }
+
+                    slot.step += 1;
+                    if slot.step >= iterations {
+                        slot.commit_actions(
+                            &mut results,
+                            &mut completed,
+                            &mut started,
+                            total_games,
+                        );
+                    }
+
+                    if slot.games.is_empty() || completed >= total_games {
+                        break;
+                    }
                 }
             }
         }
 
-        games.retain(|g| !g.is_finished());
-    }
+        drop(req_tx);
+    });
 
     calculate_result(results)
 }

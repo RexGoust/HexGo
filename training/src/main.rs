@@ -3,6 +3,7 @@ mod argument;
 mod convert;
 mod dataset;
 mod device;
+mod eval_slot;
 mod evaluation;
 mod game_slot;
 mod loss;
