@@ -22,7 +22,7 @@ use crate::{
     dataset::{self, TrainingSample},
     evaluation::{self},
     model_type::ModelType,
-    self_play::{generate_self_play_games_batched, generate_self_play_games_local},
+    self_play::{generate_samples_batched, generate_samples_local},
     train::{train_on_samples, validation_step},
 };
 use hex_go::ai::backend::TrainBackend as InnerTrainBackend;
@@ -102,7 +102,7 @@ impl Pipeline {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
-        let mut samples = generate_self_play_games_local(
+        let mut samples = generate_samples_local(
             self.config.model_type,
             self.config.games,
             self.config.iterations,
@@ -223,7 +223,7 @@ impl Pipeline {
         model: &HexGoModel<InferBackend>,
         device: &InferDevice,
     ) -> Vec<TrainingSample> {
-        let mut samples = generate_self_play_games_batched(
+        let mut samples = generate_samples_batched(
             model.clone(),
             *device,
             self.config.model_type,

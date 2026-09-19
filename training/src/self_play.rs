@@ -111,7 +111,7 @@ pub fn play_game<S: Search>(
     to_training_samples(positions, result)
 }
 
-pub fn generate_self_play_games_local<S, F>(
+pub fn generate_samples_local<S, F>(
     model_type: ModelType,
     games: usize,
     iterations: usize,
@@ -132,7 +132,7 @@ where
         .collect()
 }
 
-pub fn generate_self_play_games_batched<B>(
+pub fn generate_samples_batched<B>(
     model: HexGoModel<B>,
     device: B::Device,
     model_type: ModelType,
@@ -143,9 +143,9 @@ pub fn generate_self_play_games_batched<B>(
 where
     B: Backend,
 {
-    let mut completed_samples = Vec::new();
+    let mut samples = Vec::new();
     let mut completed_games = 0;
-    let mut started_games = 0;
+    let mut started_games = batch_size.min(total_games);
 
     let adj = match &model {
         HexGoModel::Gnn(_) => {
@@ -155,7 +155,7 @@ where
         _ => Tensor::zeros([1, 1], &device),
     };
 
-    let mut games: Vec<ActiveGame> = (0..batch_size).map(|_| ActiveGame::new()).collect();
+    let mut games: Vec<ActiveGame> = (0..started_games).map(|_| ActiveGame::new()).collect();
 
     while completed_games < total_games {
         for _ in 0..iterations {
@@ -168,27 +168,31 @@ where
                     };
                 }
             });
-        }
 
-        let inputs: Vec<&Vec<f32>> = games
-            .iter_mut()
-            .filter(|game| matches!(&game.state, NeedsEvaluation { .. }))
-            .map(|game| &game.input_buf)
-            .collect();
+            let inputs: Vec<&Vec<f32>> = games
+                .iter_mut()
+                .filter(|game| matches!(&game.state, NeedsEvaluation { .. }))
+                .map(|game| &game.input_buf)
+                .collect();
 
-        let (policies, values) = TrainNetwork::forward_batch(&model, &device, &adj, &inputs);
-
-        let mut to_update: Vec<&mut ActiveGame> = games
-            .iter_mut()
-            .filter(|g| matches!(&g.state, StepState::NeedsEvaluation { .. }))
-            .collect();
-
-        to_update.par_iter_mut().enumerate().for_each(|(i, g)| {
-            if let StepState::NeedsEvaluation { node, leaf_game } = &g.state {
-                g.mcts
-                    .step_update(*node, leaf_game, &policies[i], values[i]);
+            if inputs.is_empty() {
+                continue;
             }
-        });
+
+            let (policies, values) = TrainNetwork::forward_batch(&model, &device, &adj, &inputs);
+
+            let mut to_update: Vec<&mut ActiveGame> = games
+                .iter_mut()
+                .filter(|g| matches!(&g.state, StepState::NeedsEvaluation { .. }))
+                .collect();
+
+            to_update.par_iter_mut().enumerate().for_each(|(i, g)| {
+                if let StepState::NeedsEvaluation { node, leaf_game } = &g.state {
+                    g.mcts
+                        .step_update(*node, leaf_game, &policies[i], values[i]);
+                }
+            });
+        }
 
         games.par_iter_mut().for_each(|g| {
             g.step_action(model_type);
@@ -196,7 +200,7 @@ where
 
         for g in games.iter_mut() {
             if g.is_finished() {
-                completed_samples.extend(g.finish_game());
+                samples.extend(g.finish_game());
                 completed_games += 1;
 
                 if started_games < total_games {
@@ -209,7 +213,7 @@ where
         games.retain(|g| !g.is_finished());
     }
 
-    Vec::new()
+    samples
 }
 
 pub fn to_training_samples(

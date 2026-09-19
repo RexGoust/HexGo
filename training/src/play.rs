@@ -1,6 +1,4 @@
-use crate::{
-    argument::PlayArgs, dataset::save_samples, self_play::generate_self_play_games_batched,
-};
+use crate::{argument::PlayArgs, dataset::save_samples, self_play::generate_samples_batched};
 use hex_go::ai::{
     backend::*,
     model::{HexGoModel, store::load_model},
@@ -10,7 +8,7 @@ pub fn self_play(args: PlayArgs) {
     let device = default_infer_device();
     let model: HexGoModel<InferBackend> = load_model(args.model, &device);
 
-    let mut samples = generate_self_play_games_batched(
+    let mut samples = generate_samples_batched(
         model,
         device,
         args.model_type,

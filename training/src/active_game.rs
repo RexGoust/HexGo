@@ -72,6 +72,7 @@ impl ActiveGame {
         if self.is_finished() {
             return;
         }
+
         let player = self.game.current_player();
         let state = match model_type {
             ModelType::Mlp => encode_game_mlp(&self.game, player),
@@ -90,9 +91,11 @@ impl ActiveGame {
                     player,
                 });
                 self.game.pass_turn().unwrap();
+                self.mcts.start_search(&self.game);
                 return;
             }
         };
+
         let policy = policy_to_dense(&search.policy);
 
         let temperature = if self.actions < 30 { 1.0 } else { 0.0 };
@@ -124,6 +127,8 @@ impl ActiveGame {
             let _ = self.game.pass_turn();
             let _ = self.game.pass_turn();
         }
+
+        self.mcts.start_search(&self.game);
     }
 
     pub fn finish_game(&mut self) -> Vec<TrainingSample> {
