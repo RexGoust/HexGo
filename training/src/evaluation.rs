@@ -21,8 +21,12 @@ use hex_go::{
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    argument::EvaluateArgs, device::DeviceKind, eval_slot::EvalSlot, model_type::ModelType,
-    sampler::sample_action_by_temperature, train_network::forward_batch,
+    argument::EvaluateArgs,
+    device::DeviceKind,
+    eval_slot::EvalSlot,
+    model_type::ModelType,
+    sampler::sample_action_by_temperature,
+    train_network::{GPU_MIN_BATCH, forward_batch, forward_batch_cpu_parallel},
 };
 
 pub struct ActiveEvalGame {
@@ -380,9 +384,29 @@ fn evaluate_model_cuda<B: Backend>(
     batch_size: usize,
     total_games: usize,
     iterations: usize,
-) -> EvaluationResult
-where
-{
+) -> EvaluationResult {
+    if total_games < GPU_MIN_BATCH || batch_size < GPU_MIN_BATCH {
+        let cpu_dev = cpu_device();
+        let cand_cpu = switch_model_backend::<B, CpuBackend>(candidate, &cpu_dev);
+        let base_cpu = switch_model_backend::<B, CpuBackend>(baseline, &cpu_dev);
+        return evaluate_model_cpu(
+            || {
+                NeuralMcts::new(
+                    BurnNeuralNetwork::from_model(&cand_cpu),
+                    NeuralConfig::default(),
+                )
+            },
+            || {
+                NeuralMcts::new(
+                    BurnNeuralNetwork::from_model(&base_cpu),
+                    NeuralConfig::default(),
+                )
+            },
+            total_games,
+            iterations,
+        );
+    }
+
     let cand_type = get_model_type(&candidate);
     let base_type = get_model_type(&baseline);
 
@@ -393,6 +417,24 @@ where
     let base_adj = match &baseline {
         HexGoModel::Gnn(_) => adjacency_tensor::<B>(BoardDefinition::compact().graph(), device),
         _ => Tensor::zeros([1, 1], device),
+    };
+
+    let cpu_dev = cpu_device();
+    let cand_cpu = switch_model_backend::<B, CpuBackend>(candidate.clone(), &cpu_dev);
+    let base_cpu = switch_model_backend::<B, CpuBackend>(baseline.clone(), &cpu_dev);
+    let cpu_cand_adj = match &cand_cpu {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<CpuBackend>(&board, &cpu_dev)
+        }
+        _ => Tensor::zeros([1, 1], &cpu_dev),
+    };
+    let cpu_base_adj = match &base_cpu {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<CpuBackend>(&board, &cpu_dev)
+        }
+        _ => Tensor::zeros([1, 1], &cpu_dev),
     };
 
     let mut results: Vec<(usize, GameResult)> = Vec::new();
@@ -412,21 +454,25 @@ where
             std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>, Vec<Vec<f32>>)>(2);
 
         let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
-        // GPU worker
+        //  worker
         s.spawn(move || {
             while let Ok((id, cand_inputs, base_inputs)) = req_rx.recv() {
-                let cand_res = if !cand_inputs.is_empty() {
+                let cand_res = if cand_inputs.is_empty() {
+                    (Vec::new(), Vec::new())
+                } else if cand_inputs.len() >= GPU_MIN_BATCH {
                     let refs: Vec<&Vec<f32>> = cand_inputs.iter().collect();
                     forward_batch(&candidate, device, &cand_adj, &refs)
                 } else {
-                    (Vec::new(), Vec::new())
+                    forward_batch_cpu_parallel(&cand_cpu, &cpu_dev, &cpu_cand_adj, &cand_inputs)
                 };
 
-                let base_res = if !base_inputs.is_empty() {
+                let base_res = if base_inputs.is_empty() {
+                    (Vec::new(), Vec::new())
+                } else if base_inputs.len() >= GPU_MIN_BATCH {
                     let refs: Vec<&Vec<f32>> = base_inputs.iter().collect();
                     forward_batch(&baseline, device, &base_adj, &refs)
                 } else {
-                    (Vec::new(), Vec::new())
+                    forward_batch_cpu_parallel(&base_cpu, &cpu_dev, &cpu_base_adj, &base_inputs)
                 };
 
                 if resp_tx.send((id, cand_res, base_res)).is_err() {
