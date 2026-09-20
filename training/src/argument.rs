@@ -82,7 +82,7 @@ pub struct TrainArgs {
     pub no_eval: bool,
 
     /// Number of samples per inferring batch(Only for cuda engine)
-    #[arg(long, default_value_t = 64)]
+    #[arg(long, default_value_t = 256)]
     pub infer_size: usize,
 
     /// Infer device
