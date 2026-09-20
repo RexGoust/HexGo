@@ -201,7 +201,6 @@ pub(crate) struct UiState {
     focused_vertex: Option<VertexId>,
     focus: FocusTarget,
     modal: Option<ModalKind>,
-    feedback: String,
     pub(crate) feedback_key: Option<&'static str>,
     feedback_is_error: bool,
     result_modal_seen: bool,
@@ -264,32 +263,12 @@ fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionC
     match session.submit(command) {
         Ok(()) => {
             ui.feedback_is_error = false;
-            let key = command_feedback_key(command);
-            ui.feedback_key = Some(key);
-            ui.feedback = match key {
-                "feedback.placed" => "落子成功".into(),
-                "feedback.passed" => "已停着".into(),
-                "feedback.resigned" => "对局因认输结束".into(),
-                "feedback.restarted" => "已开始新对局".into(),
-                _ => String::new(),
-            };
+            ui.feedback_key = Some(command_feedback_key(command));
         }
         Err(error) => {
             ui.feedback_is_error = true;
-            let key = error_key(error);
-            ui.feedback_key = Some(key);
-            ui.feedback = error_message(error).into();
+            ui.feedback_key = Some(error_key(error));
         }
-    }
-}
-
-fn error_message(error: SessionError) -> &'static str {
-    match error {
-        SessionError::InvalidVertex => "该交点不在棋盘上",
-        SessionError::Occupied => "该处已有棋子",
-        SessionError::Suicide => "禁止自杀落子",
-        SessionError::Superko => "该落子违反全局同形规则",
-        SessionError::GameOver => "对局已经结束",
     }
 }
 
@@ -313,11 +292,11 @@ mod tests {
             SessionError::Superko,
             SessionError::GameOver,
         ];
-
-        assert!(
-            errors
-                .into_iter()
-                .all(|error| !error_message(error).is_empty())
-        );
+        let store = i18n::I18nStore::default();
+        for error in errors {
+            let key = error_key(error);
+            assert_ne!(store.t(i18n::Language::ZhCn, key), key);
+            assert_ne!(store.t(i18n::Language::EnUs, key), key);
+        }
     }
 }

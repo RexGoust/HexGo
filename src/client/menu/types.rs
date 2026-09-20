@@ -32,16 +32,6 @@ impl AiDifficulty {
             Self::Hard => "menu.diff_hard",
         }
     }
-
-    /// User-facing label in Chinese.
-    #[allow(dead_code)]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Simple => "简单 (50步)",
-            Self::Normal => "普通 (200步)",
-            Self::Hard => "困难 (1000步)",
-        }
-    }
 }
 
 /// Active view in the main menu hierarchy.
@@ -115,14 +105,22 @@ mod tests {
     }
 
     #[test]
-    fn difficulty_labels_are_non_empty() {
+    fn difficulty_keys_are_defined_in_locales() {
+        let store = crate::client::i18n::I18nStore::default();
         let difficulties = [
             AiDifficulty::Simple,
             AiDifficulty::Normal,
             AiDifficulty::Hard,
         ];
         for diff in difficulties {
-            assert!(!diff.label().is_empty());
+            assert_ne!(
+                store.t(crate::client::i18n::Language::ZhCn, diff.key()),
+                diff.key()
+            );
+            assert_ne!(
+                store.t(crate::client::i18n::Language::EnUs, diff.key()),
+                diff.key()
+            );
         }
     }
 }

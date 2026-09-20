@@ -281,12 +281,12 @@ pub(super) fn sync_feedback(
             GameMode::Local => false,
         };
 
-    let value = if ui.feedback.is_empty() || is_waiting_opponent {
+    let value = if is_waiting_opponent {
         default_feedback_for_mode(&session.0, &store, lang.0)
     } else if let Some(key) = ui.feedback_key {
         store.t(lang.0, key).into()
     } else {
-        ui.feedback.clone()
+        default_feedback_for_mode(&session.0, &store, lang.0)
     };
     if feedback.0.0 != value {
         feedback.0.0 = value;
@@ -633,27 +633,27 @@ mod tests {
         let store = I18nStore::default();
         assert_eq!(
             game_mode_description(GameMode::Local, &store, Language::ZhCn),
-            "本地双人对局"
+            store.t(Language::ZhCn, "game.mode_local")
         );
         assert_eq!(
             game_mode_description(GameMode::AI(Player::Black), &store, Language::ZhCn),
-            "人机对战（己方执黑）"
+            store.t(Language::ZhCn, "game.mode_ai_black")
         );
         assert_eq!(
             game_mode_description(GameMode::AI(Player::White), &store, Language::ZhCn),
-            "人机对战（己方执白）"
+            store.t(Language::ZhCn, "game.mode_ai_white")
         );
         assert_eq!(
             game_mode_description(GameMode::Network(Player::Black), &store, Language::ZhCn),
-            "网络对战（己方执黑）"
+            store.t(Language::ZhCn, "game.mode_network_black")
         );
         assert_eq!(
             game_mode_description(GameMode::Network(Player::White), &store, Language::ZhCn),
-            "网络对战（己方执白）"
+            store.t(Language::ZhCn, "game.mode_network_white")
         );
         assert_eq!(
             game_mode_description(GameMode::SelfPlay, &store, Language::ZhCn),
-            "AI 对弈模式"
+            store.t(Language::ZhCn, "game.mode_self_play")
         );
 
         assert_eq!(
@@ -681,7 +681,7 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（己方）"
+            store.t(Language::ZhCn, "role.you")
         );
         assert_eq!(
             player_role_tag(
@@ -690,7 +690,7 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（AI）"
+            store.t(Language::ZhCn, "role.ai")
         );
         assert_eq!(
             player_role_tag(
@@ -699,7 +699,7 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（AI）"
+            store.t(Language::ZhCn, "role.ai")
         );
         assert_eq!(
             player_role_tag(
@@ -708,7 +708,7 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（己方）"
+            store.t(Language::ZhCn, "role.you")
         );
 
         assert_eq!(
@@ -718,7 +718,7 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（己方）"
+            store.t(Language::ZhCn, "role.you")
         );
         assert_eq!(
             player_role_tag(
@@ -727,15 +727,15 @@ mod tests {
                 &store,
                 Language::ZhCn
             ),
-            "（对方）"
+            store.t(Language::ZhCn, "role.opponent")
         );
         assert_eq!(
             player_role_tag(Player::Black, GameMode::SelfPlay, &store, Language::ZhCn),
-            "（AI）"
+            store.t(Language::ZhCn, "role.ai")
         );
         assert_eq!(
             player_role_tag(Player::White, GameMode::SelfPlay, &store, Language::ZhCn),
-            "（AI）"
+            store.t(Language::ZhCn, "role.ai")
         );
 
         // English role tags
@@ -765,7 +765,7 @@ mod tests {
         let local = GameSession::compact(GameMode::Local);
         assert_eq!(
             default_feedback_for_mode(&local, &store, Language::ZhCn),
-            "请选择一个交点落子"
+            store.t(Language::ZhCn, "feedback.select_point")
         );
         assert_eq!(
             default_feedback_for_mode(&local, &store, Language::EnUs),
@@ -775,7 +775,7 @@ mod tests {
         let ai_black = GameSession::compact(GameMode::AI(Player::Black));
         assert_eq!(
             default_feedback_for_mode(&ai_black, &store, Language::ZhCn),
-            "轮到己方，请选择交点落子"
+            store.t(Language::ZhCn, "feedback.your_turn")
         );
         assert_eq!(
             default_feedback_for_mode(&ai_black, &store, Language::EnUs),
@@ -785,7 +785,7 @@ mod tests {
         let ai_white = GameSession::compact(GameMode::AI(Player::White));
         assert_eq!(
             default_feedback_for_mode(&ai_white, &store, Language::ZhCn),
-            "AI 正在思考中..."
+            store.t(Language::ZhCn, "feedback.ai_thinking")
         );
         assert_eq!(
             default_feedback_for_mode(&ai_white, &store, Language::EnUs),
@@ -795,7 +795,7 @@ mod tests {
         let self_play = GameSession::compact(GameMode::SelfPlay);
         assert_eq!(
             default_feedback_for_mode(&self_play, &store, Language::ZhCn),
-            "AI 自动对弈中..."
+            store.t(Language::ZhCn, "feedback.ai_playing")
         );
 
         let mut finished = GameSession::compact(GameMode::Local);
@@ -803,7 +803,7 @@ mod tests {
         finished.submit(SessionCommand::Pass).unwrap();
         assert_eq!(
             default_feedback_for_mode(&finished, &store, Language::ZhCn),
-            "对局已结束"
+            store.t(Language::ZhCn, "game.over")
         );
         assert_eq!(
             default_feedback_for_mode(&finished, &store, Language::EnUs),
@@ -824,10 +824,19 @@ mod tests {
         app.world_mut().spawn((CurrentPlayerText, Text::new("")));
         app.update();
 
+        let store = I18nStore::default();
+        let expected = store.format(
+            Language::ZhCn,
+            "game.turn",
+            &[
+                ("player", store.t(Language::ZhCn, "player.black")),
+                ("role", store.t(Language::ZhCn, "role.you")),
+            ],
+        );
         let world = app.world_mut();
         let mut query = world.query_filtered::<&Text, With<CurrentPlayerText>>();
         let text = query.single(world).unwrap();
-        assert_eq!(text.0, "当前执子：黑方（己方）");
+        assert_eq!(text.0, expected);
     }
 
     #[test]
@@ -843,10 +852,12 @@ mod tests {
         app.world_mut().spawn((GameModeText, Text::new("")));
         app.update();
 
+        let store = I18nStore::default();
+        let expected = store.t(Language::ZhCn, "game.mode_ai_black");
         let world = app.world_mut();
         let mut query = world.query_filtered::<&Text, With<GameModeText>>();
         let text = query.single(world).unwrap();
-        assert_eq!(text.0, "人机对战（己方执黑）");
+        assert_eq!(text.0, expected);
     }
 
     #[test]
@@ -856,6 +867,15 @@ mod tests {
         session.submit(SessionCommand::Pass).unwrap();
         session.submit(SessionCommand::Pass).unwrap();
         assert!(session.result().is_some());
+
+        let store = I18nStore::default();
+        let (expected_title, expected_details) = format_modal_result(
+            &session,
+            session.result().unwrap(),
+            session.mode(),
+            &store,
+            Language::ZhCn,
+        );
 
         app.insert_resource(SessionResource(session))
             .init_resource::<UiState>()
@@ -886,7 +906,11 @@ mod tests {
 
         let mut title_q = world.query_filtered::<&Text, With<ResultModalTitle>>();
         let title = title_q.single(world).unwrap();
-        assert!(title.0.contains("胜") || title.0.contains("和棋"));
+        assert_eq!(title.0, expected_title);
+
+        let mut details_q = world.query_filtered::<&Text, With<ResultModalDetails>>();
+        let details = details_q.single(world).unwrap();
+        assert_eq!(details.0, expected_details);
     }
 
     #[test]

@@ -4,8 +4,6 @@ use crate::client::i18n::{CurrentLanguage, I18nKey, I18nStore, Language};
 use crate::client::input::ButtonAction;
 use crate::client::state::InGameEntity;
 
-pub mod rules_summary;
-
 const TEXT_COLOR: Color = Color::srgb(1.0, 0.96, 0.89);
 pub const MUTED_TEXT: Color = Color::srgb(0.82, 0.72, 0.55);
 pub const SIDEBAR_WIDTH: f32 = 300.0;
