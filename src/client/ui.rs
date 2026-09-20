@@ -103,7 +103,7 @@ fn action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(BUTTON_BACKGROUND),
-        children![text_bundle(label, font, 17.0, TEXT_COLOR)],
+        children![text_bundle(label, font, 18.0, TEXT_COLOR)],
     )
 }
 
@@ -183,11 +183,11 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                 .with_children(|status| {
                     status.spawn((
                         CurrentPlayerText,
-                        text_bundle("当前执子：黑方", font, 23.0, TEXT_COLOR),
+                        text_bundle("当前执子：黑方", font, 22.0, TEXT_COLOR),
                     ));
                     status.spawn((
                         PassCountText,
-                        text_bundle("连续停着：0 / 2", font, 17.0, MUTED_TEXT),
+                        text_bundle("连续停着：0 / 2", font, 16.0, MUTED_TEXT),
                     ));
                 });
             panel.spawn((
@@ -472,8 +472,8 @@ fn modal_action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -
         Node {
             flex_grow: 1.0,
             flex_basis: px(0),
-            height: px(42),
-            padding: UiRect::horizontal(px(6)),
+            height: px(46),
+            padding: UiRect::horizontal(px(8)),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
             border: UiRect::all(px(1)),
@@ -482,7 +482,7 @@ fn modal_action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(BUTTON_BACKGROUND),
-        children![text_bundle(label, font, 14.0, TEXT_COLOR)],
+        children![text_bundle(label, font, 16.0, TEXT_COLOR)],
     )
 }
 
