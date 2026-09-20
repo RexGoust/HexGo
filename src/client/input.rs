@@ -1,5 +1,5 @@
 use crate::client::ui::RulesScroll;
-use crate::client::{RULES_SCROLL_LINE, can_do_game_action, error_message, layout};
+use crate::client::{RULES_SCROLL_LINE, can_do_game_action, error_key, layout};
 use crate::game::state::GameStatus;
 use crate::session::{GameMode, GameSession, SessionError};
 use crate::{
@@ -264,7 +264,7 @@ fn request_resign(session: &GameSession, ui: &mut UiState) {
         ui.modal = Some(ModalKind::Resign);
     } else {
         ui.feedback_is_error = true;
-        ui.feedback = error_message(SessionError::GameOver).into();
+        ui.feedback_key = Some(error_key(SessionError::GameOver));
     }
 }
 
@@ -345,10 +345,7 @@ mod tests {
     use super::*;
     use crate::{
         board_layout::BoardDefinition,
-        client::{
-            input::{HIT_RADIUS, navigate_vertex, nearest_vertex},
-            ui::rules_summary,
-        },
+        client::input::{HIT_RADIUS, navigate_vertex, nearest_vertex},
         game::board::VertexId,
         session::GameMode,
     };
@@ -403,8 +400,6 @@ mod tests {
 
         assert_eq!(ui.modal, Some(ModalKind::Rules));
         assert_eq!(session.current_player(), current_player);
-        assert!(rules_summary::SUMMARY.contains("全局同形禁着"));
-        assert!(rules_summary::SUMMARY.contains("连续两次停着"));
     }
 
     #[test]
@@ -418,7 +413,7 @@ mod tests {
 
         assert_eq!(ui.modal, None);
         assert!(ui.feedback_is_error);
-        assert_eq!(ui.feedback, error_message(SessionError::GameOver));
+        assert_eq!(ui.feedback_key, Some(error_key(SessionError::GameOver)));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod board;
+pub mod i18n;
 mod input;
 mod layout;
 mod materials;
@@ -47,7 +48,10 @@ impl Plugin for ClientPlugin {
             })
             .init_resource::<AiConfig>()
             .init_resource::<AiState>()
-            .init_resource::<UiState>();
+            .init_resource::<UiState>()
+            .init_resource::<i18n::CurrentLanguage>()
+            .init_resource::<i18n::I18nStore>()
+            .add_systems(Update, i18n::sync_i18n_static_texts);
 
         setup(app);
 
@@ -197,7 +201,7 @@ pub(crate) struct UiState {
     focused_vertex: Option<VertexId>,
     focus: FocusTarget,
     modal: Option<ModalKind>,
-    feedback: String,
+    pub(crate) feedback_key: Option<&'static str>,
     feedback_is_error: bool,
     result_modal_seen: bool,
 }
@@ -224,6 +228,25 @@ pub(crate) fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
     }
 }
 
+pub(crate) fn command_feedback_key(command: SessionCommand) -> &'static str {
+    match command {
+        SessionCommand::Place(_) => "feedback.placed",
+        SessionCommand::Pass => "feedback.passed",
+        SessionCommand::Resign => "feedback.resigned",
+        SessionCommand::Restart => "feedback.restarted",
+    }
+}
+
+pub(crate) fn error_key(error: SessionError) -> &'static str {
+    match error {
+        SessionError::InvalidVertex => "error.invalid_vertex",
+        SessionError::Occupied => "error.occupied",
+        SessionError::Suicide => "error.suicide",
+        SessionError::Superko => "error.superko",
+        SessionError::GameOver => "error.game_over",
+    }
+}
+
 fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionCommand) {
     if ui.modal.is_some() {
         return;
@@ -240,27 +263,12 @@ fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionC
     match session.submit(command) {
         Ok(()) => {
             ui.feedback_is_error = false;
-            ui.feedback = match command {
-                SessionCommand::Place(_) => "落子成功".into(),
-                SessionCommand::Pass => "已停着".into(),
-                SessionCommand::Resign => "对局因认输结束".into(),
-                SessionCommand::Restart => "已开始新对局".into(),
-            };
+            ui.feedback_key = Some(command_feedback_key(command));
         }
         Err(error) => {
             ui.feedback_is_error = true;
-            ui.feedback = error_message(error).into();
+            ui.feedback_key = Some(error_key(error));
         }
-    }
-}
-
-fn error_message(error: SessionError) -> &'static str {
-    match error {
-        SessionError::InvalidVertex => "该交点不在棋盘上",
-        SessionError::Occupied => "该处已有棋子",
-        SessionError::Suicide => "禁止自杀落子",
-        SessionError::Superko => "该落子违反全局同形规则",
-        SessionError::GameOver => "对局已经结束",
     }
 }
 
@@ -284,11 +292,11 @@ mod tests {
             SessionError::Superko,
             SessionError::GameOver,
         ];
-
-        assert!(
-            errors
-                .into_iter()
-                .all(|error| !error_message(error).is_empty())
-        );
+        let store = i18n::I18nStore::default();
+        for error in errors {
+            let key = error_key(error);
+            assert_ne!(store.t(i18n::Language::ZhCn, key), key);
+            assert_ne!(store.t(i18n::Language::EnUs, key), key);
+        }
     }
 }

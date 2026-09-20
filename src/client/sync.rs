@@ -2,6 +2,7 @@ use super::ui::{
     CurrentPlayerText, GameModeText, PassCountText, ResultModalDetails, ResultModalOverlay,
     ResultModalTitle, ResultPanel, ResultText,
 };
+use crate::client::i18n::{CurrentLanguage, I18nStore, Language};
 use crate::{
     client::{
         FocusTarget, ModalKind, SessionResource, UiState,
@@ -19,43 +20,60 @@ use crate::{
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
-pub(super) fn player_role_tag(player: Player, mode: GameMode) -> &'static str {
+pub(super) fn player_role_tag_key(player: Player, mode: GameMode) -> Option<&'static str> {
     match mode {
-        GameMode::Local => "",
+        GameMode::Local => None,
         GameMode::AI(my_player) => {
             if player == my_player {
-                "（己方）"
+                Some("role.you")
             } else {
-                "（AI）"
+                Some("role.ai")
             }
         }
         GameMode::Network(my_player) => {
             if player == my_player {
-                "（己方）"
+                Some("role.you")
             } else {
-                "（对方）"
+                Some("role.opponent")
             }
         }
-        GameMode::SelfPlay => "（AI）",
+        GameMode::SelfPlay => Some("role.ai"),
     }
 }
 
-pub(super) fn game_mode_description(mode: GameMode) -> &'static str {
+pub(super) fn player_role_tag(
+    player: Player,
+    mode: GameMode,
+    store: &I18nStore,
+    lang: Language,
+) -> &str {
+    player_role_tag_key(player, mode)
+        .map(|key| store.t(lang, key))
+        .unwrap_or("")
+}
+
+pub(super) fn game_mode_key(mode: GameMode) -> &'static str {
     match mode {
-        GameMode::Local => "本地双人对局",
-        GameMode::AI(Player::Black) => "人机对战（己方执黑）",
-        GameMode::AI(Player::White) => "人机对战（己方执白）",
-        GameMode::Network(Player::Black) => "网络对战（己方执黑）",
-        GameMode::Network(Player::White) => "网络对战（己方执白）",
-        GameMode::SelfPlay => "AI 对弈模式",
+        GameMode::Local => "game.mode_local",
+        GameMode::AI(Player::Black) => "game.mode_ai_black",
+        GameMode::AI(Player::White) => "game.mode_ai_white",
+        GameMode::Network(Player::Black) => "game.mode_network_black",
+        GameMode::Network(Player::White) => "game.mode_network_white",
+        GameMode::SelfPlay => "game.mode_self_play",
     }
+}
+
+pub(super) fn game_mode_description(mode: GameMode, store: &I18nStore, lang: Language) -> &str {
+    store.t(lang, game_mode_key(mode))
 }
 
 pub(super) fn sync_game_mode(
     session: Res<SessionResource>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut mode_text: Single<&mut Text, With<GameModeText>>,
 ) {
-    let value = game_mode_description(session.0.mode());
+    let value = game_mode_description(session.0.mode(), &store, lang.0);
     if mode_text.0 != value {
         mode_text.0 = value.into();
     }
@@ -159,15 +177,18 @@ pub(super) fn sync_last_move_marker(
 
 pub(super) fn sync_current_player(
     session: Res<SessionResource>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut current_player: Single<&mut Text, With<CurrentPlayerText>>,
 ) {
     let value = match session.0.status() {
         GameStatus::Playing => {
             let current = session.0.current_player();
-            let role = player_role_tag(current, session.0.mode());
-            format!("当前执子：{}{}", player_name(current), role)
+            let role = player_role_tag(current, session.0.mode(), &store, lang.0);
+            let p_name = player_name(current, &store, lang.0);
+            store.format(lang.0, "game.turn", &[("player", p_name), ("role", role)])
         }
-        GameStatus::Finished(_) => "对局已结束".into(),
+        GameStatus::Finished(_) => store.t(lang.0, "game.over").into(),
     };
     if current_player.0 != value {
         current_player.0 = value;
@@ -176,9 +197,12 @@ pub(super) fn sync_current_player(
 
 pub(super) fn sync_pass_count(
     session: Res<SessionResource>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut pass_count: Single<&mut Text, With<PassCountText>>,
 ) {
-    let value = format!("连续停着：{} / 2", session.0.consecutive_passes());
+    let count_str = session.0.consecutive_passes().to_string();
+    let value = store.format(lang.0, "game.passes", &[("count", &count_str)]);
     if pass_count.0 != value {
         pass_count.0 = value;
     }
@@ -187,6 +211,8 @@ pub(super) fn sync_pass_count(
 pub(super) fn sync_result(
     window: Single<&Window, With<PrimaryWindow>>,
     session: Res<SessionResource>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut result_panel: Single<&mut Node, With<ResultPanel>>,
     mut result_text: Single<&mut Text, With<ResultText>>,
 ) {
@@ -196,7 +222,7 @@ pub(super) fn sync_result(
             result_panel.display = Display::None;
         } else {
             result_panel.display = Display::Flex;
-            let value = result_summary(&session.0, result);
+            let value = result_summary(&session.0, result, &store, lang.0);
             if result_text.0 != value {
                 result_text.0 = value;
             }
@@ -206,33 +232,43 @@ pub(super) fn sync_result(
     }
 }
 
-pub(super) fn default_feedback_for_mode(session: &GameSession) -> String {
+pub(super) fn default_feedback_key_for_mode(session: &GameSession) -> &'static str {
     if session.status() != GameStatus::Playing {
-        return "对局已结束".into();
+        return "game.over";
     }
     match session.mode() {
-        GameMode::Local => "请选择一个交点落子".into(),
+        GameMode::Local => "feedback.select_point",
         GameMode::AI(my_player) => {
             if session.current_player() == my_player {
-                "轮到己方，请选择交点落子".into()
+                "feedback.your_turn"
             } else {
-                "AI 正在思考中...".into()
+                "feedback.ai_thinking"
             }
         }
         GameMode::Network(my_player) => {
             if session.current_player() == my_player {
-                "轮到己方，请选择交点落子".into()
+                "feedback.your_turn"
             } else {
-                "等待对方落子...".into()
+                "feedback.waiting_opponent"
             }
         }
-        GameMode::SelfPlay => "AI 自动对弈中...".into(),
+        GameMode::SelfPlay => "feedback.ai_playing",
     }
+}
+
+pub(super) fn default_feedback_for_mode(
+    session: &GameSession,
+    store: &I18nStore,
+    lang: Language,
+) -> String {
+    store.t(lang, default_feedback_key_for_mode(session)).into()
 }
 
 pub(super) fn sync_feedback(
     session: Res<SessionResource>,
     ui: Res<UiState>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut feedback: Single<(&mut Text, &mut TextColor), With<FeedbackText>>,
 ) {
     let is_waiting_opponent = session.0.status() == GameStatus::Playing
@@ -245,10 +281,12 @@ pub(super) fn sync_feedback(
             GameMode::Local => false,
         };
 
-    let value = if ui.feedback.is_empty() || is_waiting_opponent {
-        default_feedback_for_mode(&session.0)
+    let value = if is_waiting_opponent {
+        default_feedback_for_mode(&session.0, &store, lang.0)
+    } else if let Some(key) = ui.feedback_key {
+        store.t(lang.0, key).into()
     } else {
-        ui.feedback.clone()
+        default_feedback_for_mode(&session.0, &store, lang.0)
     };
     if feedback.0.0 != value {
         feedback.0.0 = value;
@@ -260,46 +298,76 @@ pub(super) fn sync_feedback(
     };
 }
 
-fn player_name(player: Player) -> &'static str {
+pub(super) fn player_name_key(player: Player) -> &'static str {
     match player {
-        Player::Black => "黑方",
-        Player::White => "白方",
+        Player::Black => "player.black",
+        Player::White => "player.white",
     }
 }
 
-fn result_summary(session: &GameSession, result: GameResult) -> String {
+pub(super) fn player_name(player: Player, store: &I18nStore, lang: Language) -> &str {
+    store.t(lang, player_name_key(player))
+}
+
+pub(super) fn result_summary(
+    session: &GameSession,
+    result: GameResult,
+    store: &I18nStore,
+    lang: Language,
+) -> String {
     let mode = session.mode();
     match result {
         GameResult::WinByResignation { winner } => {
-            let role = player_role_tag(winner, mode);
-            format!("对局结果\n{}{}因对方认输获胜", player_name(winner), role)
+            let role = player_role_tag(winner, mode, store, lang);
+            let p_name = player_name(winner, store, lang);
+            store.format(
+                lang,
+                "result.resignation_sidebar",
+                &[("player", p_name), ("role", role)],
+            )
         }
         GameResult::WinByScore { winner, margin } => {
             let score = session.score_breakdown();
-            let winner_role = player_role_tag(winner, mode);
-            let black_role = player_role_tag(Player::Black, mode);
-            let white_role = player_role_tag(Player::White, mode);
-            format!(
-                "对局结果\n{}{}胜 {:.1} 目\n\n黑方{}\n棋子：{}\n领地：{}\n总分：{:.1}\n\n白方{}\n棋子：{}\n领地：{}\n贴目：{:.1}\n总分：{:.1}",
-                player_name(winner),
-                winner_role,
-                margin,
-                black_role,
-                score.black_stones,
-                score.black_territory,
-                score.black_total,
-                white_role,
-                score.white_stones,
-                score.white_territory,
-                score.komi,
-                score.white_total,
+            let winner_role = player_role_tag(winner, mode, store, lang);
+            let black_role = player_role_tag(Player::Black, mode, store, lang);
+            let white_role = player_role_tag(Player::White, mode, store, lang);
+            let margin_str = format!("{:.1}", margin);
+            let b_stones = score.black_stones.to_string();
+            let b_territory = score.black_territory.to_string();
+            let b_total = format!("{:.1}", score.black_total);
+            let w_stones = score.white_stones.to_string();
+            let w_territory = score.white_territory.to_string();
+            let komi = format!("{:.1}", score.komi);
+            let w_total = format!("{:.1}", score.white_total);
+            let p_name = player_name(winner, store, lang);
+
+            store.format(
+                lang,
+                "result.score_details_sidebar",
+                &[
+                    ("player", p_name),
+                    ("role", winner_role),
+                    ("margin", &margin_str),
+                    ("black_role", black_role),
+                    ("black_stones", &b_stones),
+                    ("black_territory", &b_territory),
+                    ("black_total", &b_total),
+                    ("white_role", white_role),
+                    ("white_stones", &w_stones),
+                    ("white_territory", &w_territory),
+                    ("komi", &komi),
+                    ("white_total", &w_total),
+                ],
             )
         }
         GameResult::Draw => {
             let score = session.score_breakdown();
-            format!(
-                "对局结果\n和棋\n\n黑方总分：{:.1}\n白方总分：{:.1}",
-                score.black_total, score.white_total
+            let b_total = format!("{:.1}", score.black_total);
+            let w_total = format!("{:.1}", score.white_total);
+            store.format(
+                lang,
+                "result.draw_sidebar",
+                &[("black_total", &b_total), ("white_total", &w_total)],
             )
         }
     }
@@ -307,20 +375,22 @@ fn result_summary(session: &GameSession, result: GameResult) -> String {
 
 pub(super) fn sync_modal(
     ui: Res<UiState>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut overlay: Single<&mut Node, With<ModalOverlay>>,
     mut text: Single<&mut Text, With<ModalText>>,
 ) {
     match ui.modal {
         Some(ModalKind::Resign) => {
             overlay.display = Display::Flex;
-            let value = "确认认输？\n当前对局将立即结束。";
+            let value = store.t(lang.0, "modal.resign_prompt");
             if text.0 != value {
                 text.0 = value.into();
             }
         }
         Some(ModalKind::Restart) => {
             overlay.display = Display::Flex;
-            let value = "确认重新开始？\n当前棋盘进度将被清空。";
+            let value = store.t(lang.0, "modal.restart_prompt");
             if text.0 != value {
                 text.0 = value.into();
             }
@@ -350,6 +420,8 @@ pub(super) fn sync_rules_modal(
 pub(super) fn sync_result_modal(
     session: Res<SessionResource>,
     mut ui: ResMut<UiState>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
     mut overlay: Single<&mut Node, With<ResultModalOverlay>>,
     mut title: Single<&mut Text, (With<ResultModalTitle>, Without<ResultModalDetails>)>,
     mut details: Single<&mut Text, (With<ResultModalDetails>, Without<ResultModalTitle>)>,
@@ -368,7 +440,8 @@ pub(super) fn sync_result_modal(
 
     if is_open && let Some(result) = session.0.result() {
         let mode = session.0.mode();
-        let (title_text, details_text) = format_modal_result(&session.0, result, mode);
+        let (title_text, details_text) =
+            format_modal_result(&session.0, result, mode, &store, lang.0);
         if title.0 != title_text {
             title.0 = title_text;
         }
@@ -378,48 +451,77 @@ pub(super) fn sync_result_modal(
     }
 }
 
-fn format_modal_result(
+pub(super) fn format_modal_result(
     session: &GameSession,
     result: GameResult,
     mode: GameMode,
+    store: &I18nStore,
+    lang: Language,
 ) -> (String, String) {
     match result {
         GameResult::WinByResignation { winner } => {
-            let role = player_role_tag(winner, mode);
-            (
-                format!("{}{}获胜", player_name(winner), role),
-                "因对方认输，本局对战结束。".into(),
-            )
+            let role = player_role_tag(winner, mode, store, lang);
+            let p_name = player_name(winner, store, lang);
+            let title = store.format(
+                lang,
+                "result.resignation_winner",
+                &[("player", p_name), ("role", role)],
+            );
+            let details = store.t(lang, "result.resignation_details").to_string();
+            (title, details)
         }
         GameResult::WinByScore { winner, margin } => {
             let score = session.score_breakdown();
-            let winner_role = player_role_tag(winner, mode);
-            let black_role = player_role_tag(Player::Black, mode);
-            let white_role = player_role_tag(Player::White, mode);
-            let title = format!("{}{}胜 {:.1} 目", player_name(winner), winner_role, margin);
-            let details = format!(
-                "黑方{}\n棋子：{}\n领地：{}\n总分：{:.1}\n\n白方{}\n棋子：{}\n领地：{}\n贴目：{:.1}\n总分：{:.1}",
-                black_role,
-                score.black_stones,
-                score.black_territory,
-                score.black_total,
-                white_role,
-                score.white_stones,
-                score.white_territory,
-                score.komi,
-                score.white_total,
+            let winner_role = player_role_tag(winner, mode, store, lang);
+            let black_role = player_role_tag(Player::Black, mode, store, lang);
+            let white_role = player_role_tag(Player::White, mode, store, lang);
+            let margin_str = format!("{:.1}", margin);
+            let b_stones = score.black_stones.to_string();
+            let b_territory = score.black_territory.to_string();
+            let b_total = format!("{:.1}", score.black_total);
+            let w_stones = score.white_stones.to_string();
+            let w_territory = score.white_territory.to_string();
+            let komi = format!("{:.1}", score.komi);
+            let w_total = format!("{:.1}", score.white_total);
+            let p_name = player_name(winner, store, lang);
+
+            let title = store.format(
+                lang,
+                "result.score_winner",
+                &[
+                    ("player", p_name),
+                    ("role", winner_role),
+                    ("margin", &margin_str),
+                ],
+            );
+            let details = store.format(
+                lang,
+                "result.score_details_modal",
+                &[
+                    ("black_role", black_role),
+                    ("black_stones", &b_stones),
+                    ("black_territory", &b_territory),
+                    ("black_total", &b_total),
+                    ("white_role", white_role),
+                    ("white_stones", &w_stones),
+                    ("white_territory", &w_territory),
+                    ("komi", &komi),
+                    ("white_total", &w_total),
+                ],
             );
             (title, details)
         }
         GameResult::Draw => {
             let score = session.score_breakdown();
-            (
-                "双方和棋".into(),
-                format!(
-                    "黑方总分：{:.1}\n白方总分：{:.1}",
-                    score.black_total, score.white_total
-                ),
-            )
+            let b_total = format!("{:.1}", score.black_total);
+            let w_total = format!("{:.1}", score.white_total);
+            let title = store.t(lang, "result.draw_title").to_string();
+            let details = store.format(
+                lang,
+                "result.draw_details",
+                &[("black_total", &b_total), ("white_total", &w_total)],
+            );
+            (title, details)
         }
     }
 }
@@ -466,6 +568,7 @@ mod tests {
 
     #[test]
     fn score_result_lines_fit_the_sidebar_card() {
+        let store = I18nStore::default();
         let modes = [
             GameMode::Local,
             GameMode::AI(Player::Black),
@@ -477,7 +580,8 @@ mod tests {
             let mut session = GameSession::compact(mode);
             session.submit(SessionCommand::Pass).unwrap();
             session.submit(SessionCommand::Pass).unwrap();
-            let summary = result_summary(&session, session.result().unwrap());
+            let summary =
+                result_summary(&session, session.result().unwrap(), &store, Language::ZhCn);
 
             assert!(
                 summary.lines().all(|line| line.chars().count() <= 14),
@@ -486,14 +590,24 @@ mod tests {
                 summary
             );
 
-            let (modal_title, modal_details) =
-                format_modal_result(&session, session.result().unwrap(), mode);
+            let (modal_title, modal_details) = format_modal_result(
+                &session,
+                session.result().unwrap(),
+                mode,
+                &store,
+                Language::ZhCn,
+            );
             assert!(!modal_title.is_empty());
             assert!(!modal_details.is_empty());
 
             let mut resign_session = GameSession::compact(mode);
             resign_session.submit(SessionCommand::Resign).unwrap();
-            let resign_summary = result_summary(&resign_session, resign_session.result().unwrap());
+            let resign_summary = result_summary(
+                &resign_session,
+                resign_session.result().unwrap(),
+                &store,
+                Language::ZhCn,
+            );
             assert!(
                 resign_summary
                     .lines()
@@ -502,8 +616,13 @@ mod tests {
                 mode,
                 resign_summary
             );
-            let (resign_title, resign_details) =
-                format_modal_result(&resign_session, resign_session.result().unwrap(), mode);
+            let (resign_title, resign_details) = format_modal_result(
+                &resign_session,
+                resign_session.result().unwrap(),
+                mode,
+                &store,
+                Language::ZhCn,
+            );
             assert!(!resign_title.is_empty());
             assert!(!resign_details.is_empty());
         }
@@ -511,78 +630,185 @@ mod tests {
 
     #[test]
     fn role_tags_and_descriptions_match_each_mode() {
-        assert_eq!(game_mode_description(GameMode::Local), "本地双人对局");
+        let store = I18nStore::default();
         assert_eq!(
-            game_mode_description(GameMode::AI(Player::Black)),
-            "人机对战（己方执黑）"
+            game_mode_description(GameMode::Local, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_local")
         );
         assert_eq!(
-            game_mode_description(GameMode::AI(Player::White)),
-            "人机对战（己方执白）"
+            game_mode_description(GameMode::AI(Player::Black), &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_ai_black")
         );
         assert_eq!(
-            game_mode_description(GameMode::Network(Player::Black)),
-            "网络对战（己方执黑）"
+            game_mode_description(GameMode::AI(Player::White), &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_ai_white")
         );
         assert_eq!(
-            game_mode_description(GameMode::Network(Player::White)),
-            "网络对战（己方执白）"
-        );
-        assert_eq!(game_mode_description(GameMode::SelfPlay), "AI 对弈模式");
-
-        assert_eq!(player_role_tag(Player::Black, GameMode::Local), "");
-        assert_eq!(player_role_tag(Player::White, GameMode::Local), "");
-
-        assert_eq!(
-            player_role_tag(Player::Black, GameMode::AI(Player::Black)),
-            "（己方）"
+            game_mode_description(GameMode::Network(Player::Black), &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_network_black")
         );
         assert_eq!(
-            player_role_tag(Player::White, GameMode::AI(Player::Black)),
-            "（AI）"
+            game_mode_description(GameMode::Network(Player::White), &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_network_white")
         );
         assert_eq!(
-            player_role_tag(Player::Black, GameMode::AI(Player::White)),
-            "（AI）"
-        );
-        assert_eq!(
-            player_role_tag(Player::White, GameMode::AI(Player::White)),
-            "（己方）"
+            game_mode_description(GameMode::SelfPlay, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.mode_self_play")
         );
 
         assert_eq!(
-            player_role_tag(Player::Black, GameMode::Network(Player::Black)),
-            "（己方）"
+            game_mode_description(GameMode::Local, &store, Language::EnUs),
+            "Local 2-Player"
         );
         assert_eq!(
-            player_role_tag(Player::White, GameMode::Network(Player::Black)),
-            "（对方）"
+            game_mode_description(GameMode::AI(Player::Black), &store, Language::EnUs),
+            "VS AI (Playing Black)"
         );
-        assert_eq!(player_role_tag(Player::Black, GameMode::SelfPlay), "（AI）");
-        assert_eq!(player_role_tag(Player::White, GameMode::SelfPlay), "（AI）");
+
+        assert_eq!(
+            player_role_tag(Player::Black, GameMode::Local, &store, Language::ZhCn),
+            ""
+        );
+        assert_eq!(
+            player_role_tag(Player::White, GameMode::Local, &store, Language::ZhCn),
+            ""
+        );
+
+        assert_eq!(
+            player_role_tag(
+                Player::Black,
+                GameMode::AI(Player::Black),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.you")
+        );
+        assert_eq!(
+            player_role_tag(
+                Player::White,
+                GameMode::AI(Player::Black),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.ai")
+        );
+        assert_eq!(
+            player_role_tag(
+                Player::Black,
+                GameMode::AI(Player::White),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.ai")
+        );
+        assert_eq!(
+            player_role_tag(
+                Player::White,
+                GameMode::AI(Player::White),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.you")
+        );
+
+        assert_eq!(
+            player_role_tag(
+                Player::Black,
+                GameMode::Network(Player::Black),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.you")
+        );
+        assert_eq!(
+            player_role_tag(
+                Player::White,
+                GameMode::Network(Player::Black),
+                &store,
+                Language::ZhCn
+            ),
+            store.t(Language::ZhCn, "role.opponent")
+        );
+        assert_eq!(
+            player_role_tag(Player::Black, GameMode::SelfPlay, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "role.ai")
+        );
+        assert_eq!(
+            player_role_tag(Player::White, GameMode::SelfPlay, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "role.ai")
+        );
+
+        // English role tags
+        assert_eq!(
+            player_role_tag(
+                Player::Black,
+                GameMode::AI(Player::Black),
+                &store,
+                Language::EnUs
+            ),
+            " (You)"
+        );
+        assert_eq!(
+            player_role_tag(
+                Player::White,
+                GameMode::AI(Player::Black),
+                &store,
+                Language::EnUs
+            ),
+            " (AI)"
+        );
     }
 
     #[test]
     fn default_feedback_reflects_turn_and_mode() {
+        let store = I18nStore::default();
         let local = GameSession::compact(GameMode::Local);
-        assert_eq!(default_feedback_for_mode(&local), "请选择一个交点落子");
+        assert_eq!(
+            default_feedback_for_mode(&local, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "feedback.select_point")
+        );
+        assert_eq!(
+            default_feedback_for_mode(&local, &store, Language::EnUs),
+            store.t(Language::EnUs, "feedback.select_point")
+        );
 
         let ai_black = GameSession::compact(GameMode::AI(Player::Black));
         assert_eq!(
-            default_feedback_for_mode(&ai_black),
-            "轮到己方，请选择交点落子"
+            default_feedback_for_mode(&ai_black, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "feedback.your_turn")
+        );
+        assert_eq!(
+            default_feedback_for_mode(&ai_black, &store, Language::EnUs),
+            store.t(Language::EnUs, "feedback.your_turn")
         );
 
         let ai_white = GameSession::compact(GameMode::AI(Player::White));
-        assert_eq!(default_feedback_for_mode(&ai_white), "AI 正在思考中...");
+        assert_eq!(
+            default_feedback_for_mode(&ai_white, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "feedback.ai_thinking")
+        );
+        assert_eq!(
+            default_feedback_for_mode(&ai_white, &store, Language::EnUs),
+            store.t(Language::EnUs, "feedback.ai_thinking")
+        );
 
         let self_play = GameSession::compact(GameMode::SelfPlay);
-        assert_eq!(default_feedback_for_mode(&self_play), "AI 自动对弈中...");
+        assert_eq!(
+            default_feedback_for_mode(&self_play, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "feedback.ai_playing")
+        );
 
         let mut finished = GameSession::compact(GameMode::Local);
         finished.submit(SessionCommand::Pass).unwrap();
         finished.submit(SessionCommand::Pass).unwrap();
-        assert_eq!(default_feedback_for_mode(&finished), "对局已结束");
+        assert_eq!(
+            default_feedback_for_mode(&finished, &store, Language::ZhCn),
+            store.t(Language::ZhCn, "game.over")
+        );
+        assert_eq!(
+            default_feedback_for_mode(&finished, &store, Language::EnUs),
+            store.t(Language::EnUs, "game.over")
+        );
     }
 
     #[test]
@@ -591,15 +817,26 @@ mod tests {
         app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
             Player::Black,
         ))))
+        .init_resource::<I18nStore>()
+        .init_resource::<CurrentLanguage>()
         .add_systems(Update, sync_current_player);
 
         app.world_mut().spawn((CurrentPlayerText, Text::new("")));
         app.update();
 
+        let store = I18nStore::default();
+        let expected = store.format(
+            Language::ZhCn,
+            "game.turn",
+            &[
+                ("player", store.t(Language::ZhCn, "player.black")),
+                ("role", store.t(Language::ZhCn, "role.you")),
+            ],
+        );
         let world = app.world_mut();
         let mut query = world.query_filtered::<&Text, With<CurrentPlayerText>>();
         let text = query.single(world).unwrap();
-        assert_eq!(text.0, "当前执子：黑方（己方）");
+        assert_eq!(text.0, expected);
     }
 
     #[test]
@@ -608,15 +845,19 @@ mod tests {
         app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
             Player::Black,
         ))))
+        .init_resource::<I18nStore>()
+        .init_resource::<CurrentLanguage>()
         .add_systems(Update, sync_game_mode);
 
         app.world_mut().spawn((GameModeText, Text::new("")));
         app.update();
 
+        let store = I18nStore::default();
+        let expected = store.t(Language::ZhCn, "game.mode_ai_black");
         let world = app.world_mut();
         let mut query = world.query_filtered::<&Text, With<GameModeText>>();
         let text = query.single(world).unwrap();
-        assert_eq!(text.0, "人机对战（己方执黑）");
+        assert_eq!(text.0, expected);
     }
 
     #[test]
@@ -627,8 +868,19 @@ mod tests {
         session.submit(SessionCommand::Pass).unwrap();
         assert!(session.result().is_some());
 
+        let store = I18nStore::default();
+        let (expected_title, expected_details) = format_modal_result(
+            &session,
+            session.result().unwrap(),
+            session.mode(),
+            &store,
+            Language::ZhCn,
+        );
+
         app.insert_resource(SessionResource(session))
             .init_resource::<UiState>()
+            .init_resource::<I18nStore>()
+            .init_resource::<CurrentLanguage>()
             .add_systems(Update, sync_result_modal);
 
         app.world_mut().spawn((
@@ -654,7 +906,11 @@ mod tests {
 
         let mut title_q = world.query_filtered::<&Text, With<ResultModalTitle>>();
         let title = title_q.single(world).unwrap();
-        assert!(title.0.contains("胜") || title.0.contains("和棋"));
+        assert_eq!(title.0, expected_title);
+
+        let mut details_q = world.query_filtered::<&Text, With<ResultModalDetails>>();
+        let details = details_q.single(world).unwrap();
+        assert_eq!(details.0, expected_details);
     }
 
     #[test]
@@ -666,6 +922,8 @@ mod tests {
 
         app.insert_resource(SessionResource(session))
             .init_resource::<UiState>()
+            .init_resource::<I18nStore>()
+            .init_resource::<CurrentLanguage>()
             .add_systems(Update, sync_result_modal);
 
         app.world_mut().spawn((
