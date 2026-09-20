@@ -156,6 +156,7 @@ mod tests {
     #[test]
     fn toggle_language_action_toggles_current_language() {
         let mut app = setup_test_app();
+        app.insert_resource(CurrentLanguage(Language::ZhCn));
         app.add_systems(Update, handle_menu_actions);
 
         assert_eq!(app.world().resource::<CurrentLanguage>().0, Language::ZhCn);
@@ -165,6 +166,12 @@ mod tests {
         app.update();
 
         assert_eq!(app.world().resource::<CurrentLanguage>().0, Language::EnUs);
+
+        app.world_mut()
+            .spawn((Interaction::Pressed, MenuAction::ToggleLanguage));
+        app.update();
+
+        assert_eq!(app.world().resource::<CurrentLanguage>().0, Language::ZhCn);
     }
 
     #[test]
