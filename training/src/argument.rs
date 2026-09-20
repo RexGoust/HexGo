@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use hex_go::ai::model::store::StoreType;
 
-use crate::{device::DeviceKind, model_type::ModelType};
+use crate::{benchmark::BenchArgs, device::DeviceKind, model_type::ModelType};
 #[derive(Parser)]
 #[command(styles = clap_cargo::style::CLAP_STYLING)]
 #[command(name = "hexgo-train", version, about = "HexGo AI tools")]
@@ -25,6 +25,10 @@ pub enum Command {
 
     /// Self play and save play data
     Play(PlayArgs),
+
+    /// Benchmark performance of game logic, model inference, and MCTS pipeline
+    #[command(alias = "bench")]
+    Benchmark(BenchArgs),
 }
 
 #[derive(Args)]

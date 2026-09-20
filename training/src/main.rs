@@ -1,5 +1,6 @@
 mod active_game;
 mod argument;
+mod benchmark;
 mod convert;
 mod dataset;
 mod device;
@@ -39,6 +40,9 @@ fn main() {
         }
         Command::Play(args) => {
             play::self_play(args);
+        }
+        Command::Benchmark(args) => {
+            benchmark::run_benchmark(args);
         }
     }
 }
