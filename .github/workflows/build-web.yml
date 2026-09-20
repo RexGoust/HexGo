@@ -1,0 +1,53 @@
+name: Build Web
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-web:
+    name: Build Web WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.21.14
+
+      - name: Build Web release
+        run: trunk build --cargo-profile dist --dist target/dist-web
+
+      - name: Package Web release
+        run: |
+          ROOT_DIR="$PWD"
+          mkdir -p dist
+          cd target/dist-web
+          zip -r "$ROOT_DIR/dist/HexGo-${{ inputs.version }}-web.zip" *
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/HexGo-${{ inputs.version }}-web.zip
+          if-no-files-found: error
