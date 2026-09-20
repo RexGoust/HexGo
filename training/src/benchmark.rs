@@ -910,7 +910,7 @@ pub fn run_benchmark(args: BenchArgs) {
             // Benchmark CUDA double-buffered batched pipeline breakdown
             bench_cuda_pipeline_breakdown(&args);
             println!(
-                "💡 Tip: Pass '--compare-fallback' to run side-by-side A/B comparison with vs without CPU dynamic fallback."
+                "Tip: Pass '--compare-fallback' to run side-by-side A/B comparison with vs without CPU dynamic fallback."
             );
         }
     }
