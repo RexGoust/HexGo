@@ -1,18 +1,12 @@
+use std::any::TypeId;
+
 use burn::{
     module::Module,
     record::{BinBytesRecorder, FullPrecisionSettings, Recorder},
     tensor::backend::Backend,
 };
-use clap::ValueEnum;
 
 use crate::ai::model::HexGoModel;
-
-#[derive(Debug, Clone, ValueEnum, Copy, PartialEq, Eq)]
-#[value(rename_all = "lower")]
-pub enum BackendKind {
-    Flex,
-    Cuda,
-}
 
 pub fn switch_model_backend<B1, B2>(
     model: HexGoModel<B1>,
@@ -22,6 +16,12 @@ where
     B1: Backend,
     B2: Backend,
 {
+    if TypeId::of::<B1>() == TypeId::of::<B2>() {
+        let raw = Box::into_raw(Box::new(model)) as *mut HexGoModel<B2>;
+
+        return unsafe { *Box::from_raw(raw) };
+    }
+
     let config = model.config();
 
     let recorder = BinBytesRecorder::<FullPrecisionSettings>::default();
@@ -35,27 +35,23 @@ where
 
     HexGoModel::<B2>::new(config, target_device).load_record(record2)
 }
-
 #[cfg(feature = "cuda")]
-pub type TrainBackend = burn::backend::Cuda<f32, i32>;
-
+pub type CudaBackend = burn::backend::Cuda<f32, i32>;
 #[cfg(feature = "cuda")]
-pub type TrainDevice = burn::backend::cuda::CudaDevice;
-
+pub type CudaDevice = burn::backend::cuda::CudaDevice;
 #[cfg(not(any(feature = "cuda")))]
-pub type TrainBackend = burn::backend::Flex;
-
+pub type CudaBackend = burn::backend::Flex;
 #[cfg(not(any(feature = "cuda")))]
-pub type TrainDevice = burn::backend::flex::FlexDevice;
+pub type CudaDevice = burn::backend::flex::FlexDevice;
 
-pub type InferBackend = burn::backend::Flex;
-pub type InferDevice = burn::backend::flex::FlexDevice;
+pub type CpuBackend = burn::backend::Flex;
+pub type CpuDevice = burn::backend::flex::FlexDevice;
 
-pub fn default_train_device() -> TrainDevice {
+pub fn cpu_device() -> CpuDevice {
     Default::default()
 }
 
-pub fn default_infer_device() -> InferDevice {
+pub fn cuda_device() -> CudaDevice {
     Default::default()
 }
 
@@ -63,7 +59,7 @@ pub fn default_infer_device() -> InferDevice {
 mod tests {
     use super::*;
     use crate::ai::{
-        encoder::INPUT_SIZE,
+        encoder::MLP_INPUT_SIZE,
         model::{
             ModelConfig,
             gnn::{FEATURE_DIM, GnnModelConfig},
@@ -74,17 +70,17 @@ mod tests {
 
     #[test]
     fn switch_model_backend_preserves_mlp_outputs() {
-        let device = default_infer_device();
+        let device = cpu_device();
         let config = MlpModelConfig { hidden_size: 64 };
-        let model = HexGoModel::<InferBackend>::new(ModelConfig::Mlp(config.clone()), &device);
+        let model = HexGoModel::<CpuBackend>::new(ModelConfig::Mlp(config.clone()), &device);
 
-        let input = Tensor::<InferBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let input = Tensor::<CpuBackend, 2>::zeros([1, MLP_INPUT_SIZE], &device);
         let expected_output = match &model {
             HexGoModel::Mlp(m) => m.forward(input.clone()),
             HexGoModel::Gnn(_) => unreachable!(),
         };
 
-        let switched_model = switch_model_backend::<InferBackend, InferBackend>(model, &device);
+        let switched_model = switch_model_backend::<CpuBackend, CpuBackend>(model, &device);
         assert_eq!(switched_model.config(), ModelConfig::Mlp(config));
 
         let actual_output = match &switched_model {
@@ -115,23 +111,23 @@ mod tests {
 
     #[test]
     fn switch_model_backend_preserves_gnn_outputs() {
-        let device = default_infer_device();
+        let device = cpu_device();
         let config = GnnModelConfig {
             feature_dim: FEATURE_DIM,
             hidden_dim: 32,
             num_vertices: 4,
         };
-        let model = HexGoModel::<InferBackend>::new(ModelConfig::Gnn(config.clone()), &device);
+        let model = HexGoModel::<CpuBackend>::new(ModelConfig::Gnn(config.clone()), &device);
 
-        let x = Tensor::<InferBackend, 2>::zeros([4, FEATURE_DIM], &device).unsqueeze::<3>();
-        let adj = Tensor::<InferBackend, 2>::zeros([4, 4], &device);
+        let x = Tensor::<CpuBackend, 2>::zeros([4, FEATURE_DIM], &device).unsqueeze::<3>();
+        let adj = Tensor::<CpuBackend, 2>::zeros([4, 4], &device);
 
         let expected_output = match &model {
             HexGoModel::Gnn(m) => m.forward(x.clone(), adj.clone()),
             HexGoModel::Mlp(_) => unreachable!(),
         };
 
-        let switched_model = switch_model_backend::<InferBackend, InferBackend>(model, &device);
+        let switched_model = switch_model_backend::<CpuBackend, CpuBackend>(model, &device);
         assert_eq!(switched_model.config(), ModelConfig::Gnn(config));
 
         let actual_output = match &switched_model {

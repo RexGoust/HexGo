@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use hex_go::ai::{
-    backend::{InferBackend, default_infer_device},
+    backend::{CpuBackend, cpu_device},
     model::{
         HexGoModel,
         store::{get_store_type, load_model, save_model},
@@ -25,7 +25,7 @@ pub fn convert_model(input: impl AsRef<Path>, output: impl AsRef<Path>) {
             std::process::exit(1);
         });
 
-    let model: HexGoModel<InferBackend> = load_model(input, &default_infer_device());
+    let model: HexGoModel<CpuBackend> = load_model(input, &cpu_device());
 
     save_model(output, model, store_type);
 }
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
     use burn::Tensor;
     use hex_go::ai::{
-        encoder::INPUT_SIZE,
+        encoder::MLP_INPUT_SIZE,
         model::{MlpModelConfig, ModelConfig, store::StoreType},
     };
     use rand::RngExt;
@@ -43,11 +43,11 @@ mod tests {
 
     #[test]
     fn test_convert_model_between_formats() {
-        let device = default_infer_device();
+        let device = cpu_device();
         let config = MlpModelConfig { hidden_size: 64 };
-        let model = HexGoModel::<InferBackend>::new(ModelConfig::Mlp(config.clone()), &device);
+        let model = HexGoModel::<CpuBackend>::new(ModelConfig::Mlp(config.clone()), &device);
 
-        let input = Tensor::<InferBackend, 2>::zeros([1, INPUT_SIZE], &device);
+        let input = Tensor::<CpuBackend, 2>::zeros([1, MLP_INPUT_SIZE], &device);
         let expected_output = match &model {
             HexGoModel::Mlp(m) => m.forward(input.clone()),
             HexGoModel::Gnn(_) => unreachable!(),
@@ -66,7 +66,7 @@ mod tests {
 
         // Convert MPK -> BPK
         convert_model(&mpk_path, &bpk_path);
-        let bpk_model: HexGoModel<InferBackend> = load_model(&bpk_path, &device);
+        let bpk_model: HexGoModel<CpuBackend> = load_model(&bpk_path, &device);
         assert_eq!(bpk_model.config(), ModelConfig::Mlp(config.clone()));
 
         let bpk_output = match &bpk_model {
@@ -84,7 +84,7 @@ mod tests {
 
         // Convert BPK -> MPK
         convert_model(&bpk_path, &back_mpk_path);
-        let back_model: HexGoModel<InferBackend> = load_model(&back_mpk_path, &device);
+        let back_model: HexGoModel<CpuBackend> = load_model(&back_mpk_path, &device);
         assert_eq!(back_model.config(), ModelConfig::Mlp(config));
 
         let back_output = match &back_model {

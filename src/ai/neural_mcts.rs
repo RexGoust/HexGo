@@ -5,6 +5,12 @@ use crate::{
     game::{Game, GameResult, action::Action, player::Player},
 };
 
+pub enum StepState {
+    Terminal,
+    Initial,
+    NeedsEvaluation { node: usize, leaf_game: Game },
+}
+
 #[derive(Default)]
 pub struct NeuralConfig {
     pub add_noise: bool,
@@ -186,16 +192,13 @@ impl<N: NeuralNetwork> NeuralMcts<N> {
 
         policy
     }
-}
 
-impl<N: NeuralNetwork> Search for NeuralMcts<N> {
-    fn search(&mut self, game: &Game, iterations: usize) -> Option<SearchResult> {
+    pub fn start_search(&mut self, game: &Game) -> bool {
         if game.result().is_some() {
-            return None;
+            return false;
         }
 
         self.nodes.clear();
-
         self.nodes.push(NeuralMctsNode {
             parent: None,
             children: Vec::new(),
@@ -205,30 +208,43 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
             value_sum: 0.0,
         });
 
-        for _ in 0..iterations {
-            let (node, game) = self.select(game);
+        true
+    }
 
-            if let Some(result) = game.result() {
-                let player = game.current_player();
-                let value = Self::terminal_value(result, player);
+    pub fn step_select(&mut self, root_game: &Game) -> StepState {
+        let (node, leaf_game) = self.select(root_game);
 
-                self.backpropagate(node, value);
-                continue;
-            }
+        if let Some(result) = leaf_game.result() {
+            let player = leaf_game.current_player();
+            let value = Self::terminal_value(result, player);
+            self.backpropagate(node, value);
+            StepState::Terminal
+        } else {
+            StepState::NeedsEvaluation { node, leaf_game }
+        }
+    }
 
-            let player = game.current_player();
-            let evaluation = self.network.evaluate(&game, player);
+    pub fn step_update(
+        &mut self,
+        node: usize,
+        leaf_game: &Game,
+        raw_policy: &[(Action, f32)],
+        value: f32,
+    ) {
+        let policy = Self::filter_and_normalize_policy(raw_policy, leaf_game);
+        let policy = if self.config.add_noise && node == 0 {
+            add_dirichlet_noise(&policy)
+        } else {
+            policy
+        };
 
-            let policy = Self::filter_and_normalize_policy(&evaluation.policy, &game);
+        self.expand(node, &policy);
+        self.backpropagate(node, value);
+    }
 
-            let policy = if self.config.add_noise && node == 0 {
-                add_dirichlet_noise(&policy)
-            } else {
-                policy
-            };
-
-            self.expand(node, &policy);
-            self.backpropagate(node, evaluation.value);
+    pub fn finish_search(&self) -> Option<SearchResult> {
+        if self.nodes.is_empty() {
+            return None;
         }
 
         let total_visits: u32 = self.nodes[0]
@@ -237,12 +253,15 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
             .map(|&child| self.nodes[child].visits)
             .sum();
 
+        if total_visits == 0 {
+            return None;
+        }
+
         let policy = self.nodes[0]
             .children
             .iter()
             .map(|&child| {
                 let node = &self.nodes[child];
-
                 (
                     node.action.unwrap(),
                     node.visits as f32 / total_visits as f32,
@@ -259,6 +278,28 @@ impl<N: NeuralNetwork> Search for NeuralMcts<N> {
         let action = self.nodes[best_child].action?;
 
         Some(SearchResult { action, policy })
+    }
+}
+
+impl<N: NeuralNetwork> Search for NeuralMcts<N> {
+    fn search(&mut self, game: &Game, iterations: usize) -> Option<SearchResult> {
+        if !self.start_search(game) {
+            return None;
+        }
+
+        for _ in 0..iterations {
+            match self.step_select(game) {
+                StepState::Terminal => continue,
+                StepState::NeedsEvaluation { node, leaf_game } => {
+                    let player = leaf_game.current_player();
+                    let evaluation = self.network.evaluate(&leaf_game, player);
+                    self.step_update(node, &leaf_game, &evaluation.policy, evaluation.value);
+                }
+                _ => continue,
+            }
+        }
+
+        self.finish_search()
     }
 }
 

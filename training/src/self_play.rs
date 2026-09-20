@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
+use burn::{Tensor, tensor::backend::Backend};
 use hex_go::{
     ai::{
-        encoder::{encode_game_gnn, encode_game_mlp},
+        encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
+        model::HexGoModel,
         search::Search,
     },
     board_layout::BoardDefinition,
@@ -14,7 +16,12 @@ use hex_go::{
 };
 
 use crate::{
-    dataset::TrainingSample, model_type::ModelType, sampler::sample_action_by_temperature,
+    active_game::{MAX_ACTIONS, create_game, policy_to_dense},
+    dataset::TrainingSample,
+    game_slot::GameSlot,
+    model_type::ModelType,
+    sampler::sample_action_by_temperature,
+    train_network::forward_batch,
 };
 use rayon::prelude::*;
 
@@ -22,18 +29,6 @@ pub struct SelfPlayPosition {
     pub state: Vec<f32>,
     pub policy: Vec<f32>,
     pub player: Player,
-}
-
-const MAX_ACTIONS: usize = 1000;
-
-fn policy_to_dense(policy: &[(Action, f32)]) -> Vec<f32> {
-    let mut result = vec![0.0; ACTION_SIZE];
-
-    for &(action, probability) in policy {
-        result[action.index()] = probability;
-    }
-
-    result
 }
 
 pub fn play_game<S: Search>(
@@ -116,13 +111,7 @@ pub fn play_game<S: Search>(
     to_training_samples(positions, result)
 }
 
-fn create_game() -> Game {
-    let board = BoardDefinition::compact().graph().clone();
-
-    Game::new(board)
-}
-
-pub fn generate_self_play_games<S, F>(
+pub fn generate_samples_local<S, F>(
     model_type: ModelType,
     games: usize,
     iterations: usize,
@@ -141,6 +130,107 @@ where
             play_game(model_type, &mut game, &mut mcts, iterations)
         })
         .collect()
+}
+
+pub fn generate_samples_batched<B>(
+    model: HexGoModel<B>,
+    device: &B::Device,
+    model_type: ModelType,
+    batch_size: usize,
+    total_games: usize,
+    iterations: usize,
+) -> Vec<TrainingSample>
+where
+    B: Backend,
+{
+    let mut samples = Vec::new();
+    let mut completed = 0;
+    let initial_games = batch_size.min(total_games);
+    let count_0 = initial_games.div_ceil(2);
+    let count_1 = initial_games - count_0;
+
+    let mut slots = [GameSlot::new(count_0), GameSlot::new(count_1)];
+    let mut started = slots[0].games.len() + slots[1].games.len();
+
+    let adj = match &model {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<B>(&board, device)
+        }
+        _ => Tensor::zeros([1, 1], device),
+    };
+
+    std::thread::scope(|s| {
+        let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>)>(2);
+        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
+
+        s.spawn(move || {
+            while let Ok((id, inputs)) = req_rx.recv() {
+                let refs: Vec<&Vec<f32>> = inputs.iter().collect();
+                let res = forward_batch(&model, device, &adj, &refs);
+                if resp_tx.send((id, res)).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let mut in_flight = 0;
+        for (id, slot) in slots.iter_mut().enumerate() {
+            let inputs = slot.select(model_type);
+            if !inputs.is_empty() {
+                req_tx.send((id, inputs)).unwrap();
+                in_flight += 1;
+            }
+        }
+
+        while in_flight > 0 {
+            let (id, (policies, values)) = resp_rx.recv().unwrap();
+            in_flight -= 1;
+
+            let slot = &mut slots[id];
+
+            slot.update(&policies, &values);
+            slot.step += 1;
+            if slot.step >= iterations {
+                slot.commit_actions(
+                    model_type,
+                    &mut samples,
+                    &mut completed,
+                    &mut started,
+                    total_games,
+                );
+            }
+
+            if !slot.games.is_empty() && completed < total_games {
+                loop {
+                    let next_inputs = slot.select(model_type);
+                    if !next_inputs.is_empty() {
+                        req_tx.send((id, next_inputs)).unwrap();
+                        in_flight += 1;
+                        break;
+                    }
+
+                    slot.step += 1;
+                    if slot.step >= iterations {
+                        slot.commit_actions(
+                            model_type,
+                            &mut samples,
+                            &mut completed,
+                            &mut started,
+                            total_games,
+                        );
+                    }
+
+                    if slot.games.is_empty() || completed >= total_games {
+                        break;
+                    }
+                }
+            }
+        }
+        drop(req_tx);
+    });
+
+    samples
 }
 
 pub fn to_training_samples(

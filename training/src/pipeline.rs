@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use burn::{
-    backend::Autodiff, module::AutodiffModule, optim::AdamConfig, tensor::backend::Backend,
+    backend::Autodiff,
+    module::AutodiffModule,
+    optim::AdamConfig,
+    tensor::backend::{AutodiffBackend, Backend},
 };
 use hex_go::ai::{
-    backend::{
-        InferBackend, TrainDevice, default_infer_device, default_train_device, switch_model_backend,
-    },
+    backend::{CpuBackend, CudaBackend, CudaDevice, cpu_device, cuda_device, switch_model_backend},
     burn_neural_network::BurnNeuralNetwork,
     mcts::Mcts,
     model::{
@@ -21,14 +22,14 @@ use rand::seq::SliceRandom;
 use crate::{
     argument::TrainArgs,
     dataset::{self, TrainingSample},
+    device::DeviceKind::{self},
     evaluation::{self},
     model_type::ModelType,
-    self_play::generate_self_play_games,
+    self_play::{generate_samples_batched, generate_samples_local},
     train::{train_on_samples, validation_step},
 };
-use hex_go::ai::backend::TrainBackend as InnerTrainBackend;
 
-type TrainBackend = Autodiff<InnerTrainBackend>;
+type TrainBackend = Autodiff<CudaBackend>;
 
 const EVALUATE_GAMES: usize = 200;
 const EVALUATE_ITERATIONS: usize = 800;
@@ -66,6 +67,10 @@ pub struct TrainingConfig {
     pub reuse_data: bool,
 
     pub no_eval: bool,
+
+    pub infer_size: usize,
+
+    pub infer_device: DeviceKind,
 }
 
 impl From<TrainArgs> for TrainingConfig {
@@ -83,6 +88,8 @@ impl From<TrainArgs> for TrainingConfig {
             model_type: args.model_type,
             reuse_data: args.reuse_data,
             no_eval: args.no_eval,
+            infer_size: args.infer_size,
+            infer_device: args.infer_device,
         }
     }
 }
@@ -99,11 +106,11 @@ impl Pipeline {
             config,
         }
     }
-    fn train_version_v0(&self, device: &TrainDevice) {
+    fn train_version_v0<B: AutodiffBackend>(&self, device: &B::Device) {
         let t = std::time::Instant::now();
 
         println!("v0: start training...");
-        let mut samples = generate_self_play_games(
+        let mut samples = generate_samples_local(
             self.config.model_type,
             self.config.games,
             self.config.iterations,
@@ -116,14 +123,12 @@ impl Pipeline {
         samples.shuffle(&mut rand::rng());
 
         let model = match self.config.model_type {
-            ModelType::Mlp => HexGoModel::Mlp(MlpModel::<TrainBackend>::new(
-                CURRENT_TRAIN_MODEL_CONFIG,
-                device,
-            )),
-            ModelType::Gnn => HexGoModel::Gnn(GnnModel::<TrainBackend>::new(
-                GnnModelConfig::default(),
-                device,
-            )),
+            ModelType::Mlp => {
+                HexGoModel::Mlp(MlpModel::<B>::new(CURRENT_TRAIN_MODEL_CONFIG, device))
+            }
+            ModelType::Gnn => {
+                HexGoModel::Gnn(GnnModel::<B>::new(GnnModelConfig::default(), device))
+            }
         };
 
         let model = self.train(model, samples, device);
@@ -219,18 +224,40 @@ impl Pipeline {
         all
     }
 
-    fn generate_self_play_data(&self, model: &HexGoModel<InferBackend>) -> Vec<TrainingSample> {
-        let mut samples = generate_self_play_games(
-            self.config.model_type,
-            self.config.games,
-            self.config.iterations,
-            || {
-                NeuralMcts::new(
-                    BurnNeuralNetwork::from_model(model),
-                    NeuralConfig { add_noise: true },
+    fn generate_self_play_data(
+        &self,
+        model: &HexGoModel<TrainBackend>,
+        train_device: &burn::tensor::Device<TrainBackend>,
+    ) -> Vec<TrainingSample> {
+        let mut samples = match self.config.infer_device {
+            DeviceKind::Cpu => {
+                let cpu_dev = cpu_device();
+                let cpu_model =
+                    switch_model_backend::<TrainBackend, CpuBackend>(model.clone(), &cpu_dev);
+                generate_samples_local(
+                    self.config.model_type,
+                    self.config.games,
+                    self.config.iterations,
+                    || {
+                        NeuralMcts::new(
+                            BurnNeuralNetwork::from_model(&cpu_model),
+                            NeuralConfig { add_noise: true },
+                        )
+                    },
                 )
-            },
-        );
+            }
+            DeviceKind::Cuda => {
+                let valid_model = model.valid();
+                generate_samples_batched(
+                    valid_model,
+                    train_device,
+                    self.config.model_type,
+                    self.config.infer_size,
+                    self.config.games,
+                    self.config.iterations,
+                )
+            }
+        };
 
         samples.shuffle(&mut rand::rng());
 
@@ -247,12 +274,12 @@ impl Pipeline {
         (samples, validation_samples)
     }
 
-    fn train(
+    fn train<B: AutodiffBackend>(
         &self,
-        mut model: HexGoModel<TrainBackend>,
+        mut model: HexGoModel<B>,
         samples: Vec<TrainingSample>,
-        device: &TrainDevice,
-    ) -> HexGoModel<TrainBackend> {
+        device: &B::Device,
+    ) -> HexGoModel<B> {
         let (mut train_samples, validation_samples) = Self::split_samples(samples);
 
         println!(
@@ -290,11 +317,19 @@ impl Pipeline {
 
     pub fn evaluate(
         &self,
-        candidate: &HexGoModel<InferBackend>,
-        baseline: &HexGoModel<InferBackend>,
+        candidate: HexGoModel<CudaBackend>,
+        baseline: HexGoModel<CudaBackend>,
+        device: &CudaDevice,
     ) -> bool {
-        let result =
-            evaluation::start_evaluate(candidate, baseline, EVALUATE_GAMES, EVALUATE_ITERATIONS);
+        let result = evaluation::start_evaluate(
+            candidate,
+            baseline,
+            device,
+            self.config.infer_size,
+            EVALUATE_GAMES,
+            EVALUATE_ITERATIONS,
+            self.config.infer_device,
+        );
 
         result.score_rate >= MIN_SCORE_RATE || self.config.force_save
     }
@@ -345,14 +380,13 @@ impl Pipeline {
     }
 
     pub fn run(&mut self) {
-        let train_device = &default_train_device();
-        let infer_device = &default_infer_device();
+        let train_device = &cuda_device();
 
         if self.current_version == 0 {
             if self.should_skip_version(0) {
                 self.current_version = 1;
             } else {
-                self.train_version_v0(train_device);
+                self.train_version_v0::<TrainBackend>(train_device);
                 self.current_version = 1;
             }
         }
@@ -367,9 +401,10 @@ impl Pipeline {
 
             println!("v{}: start training...", self.current_version);
 
-            let model = self.load_model(self.current_version - 1, train_device);
+            let model = self.load_model::<TrainBackend>(self.current_version - 1, train_device);
 
-            let baseline = switch_model_backend(model.clone(), infer_device);
+            let baseline = model.clone();
+
             let path = format!(
                 "data/{}/v{}/self_play.bin.zst",
                 self.config.model_type,
@@ -378,8 +413,7 @@ impl Pipeline {
             let file_exists = Path::new(&path).is_file();
 
             if !self.config.reuse_data || !file_exists {
-                let infer_model = &baseline;
-                let samples = self.generate_self_play_data(infer_model);
+                let samples = self.generate_self_play_data(&baseline, train_device);
 
                 println!(
                     "v{}: generated {} samples",
@@ -419,8 +453,8 @@ impl Pipeline {
             };
 
             let candidate = self.train(model, samples, train_device);
-            let candidate = switch_model_backend(candidate, infer_device);
-            let success = self.config.no_eval || self.evaluate(&candidate, &baseline);
+            let success = self.config.no_eval
+                || self.evaluate(candidate.valid(), baseline.valid(), train_device);
 
             if success {
                 self.save_model(self.current_version, candidate);
@@ -462,6 +496,8 @@ mod tests {
             model_type: ModelType::Mlp,
             reuse_data: false,
             no_eval: false,
+            infer_size: 1,
+            infer_device: DeviceKind::Cpu,
         })
     }
 

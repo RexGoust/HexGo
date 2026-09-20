@@ -7,14 +7,14 @@ use burn::{
 use burn_store::{BurnpackStore, ModuleSnapshot};
 
 use crate::ai::{
-    backend::{InferBackend, InferDevice, default_infer_device},
+    backend::*,
     encoder::{adjacency_tensor, encode_game_gnn_tensor},
     model::{HexGoModel, MlpModel, MlpModelConfig, ModelConfig, gnn::GnnModel},
 };
 
 use crate::{
     ai::{
-        encoder::{INPUT_SIZE, encode_game_mlp},
+        encoder::{MLP_INPUT_SIZE, encode_game_mlp},
         neural_network::{Evaluation, NeuralNetwork},
     },
     game::{
@@ -28,14 +28,14 @@ use crate::{
 const MODEL: &[u8] = include_bytes!("../../model/gnn/model.bpk");
 const CONFIG: &[u8] = include_bytes!("../../model/gnn/config.json");
 pub struct BurnNeuralNetwork {
-    model: HexGoModel<InferBackend>,
-    device: InferDevice,
+    model: HexGoModel<CpuBackend>,
+    device: CpuDevice,
 }
 
 impl BurnNeuralNetwork {
     #[allow(clippy::clone_on_copy)]
     pub fn load() -> Self {
-        let device: &InferDevice = &default_infer_device();
+        let device: &CpuDevice = &cpu_device();
         let s = std::str::from_utf8(CONFIG).unwrap();
         let config = match ModelConfig::parse_with_fallback(s) {
             Ok(config) => config,
@@ -47,12 +47,12 @@ impl BurnNeuralNetwork {
         let mut store = BurnpackStore::from_static(MODEL).zero_copy(false);
         let model = match config {
             ModelConfig::Mlp(cfg) => {
-                let mut mlp = MlpModel::<InferBackend>::new(cfg, device);
+                let mut mlp = MlpModel::<CpuBackend>::new(cfg, device);
                 mlp.load_from(&mut store).expect("failed to load model");
                 HexGoModel::Mlp(mlp)
             }
             ModelConfig::Gnn(cfg) => {
-                let mut gnn = GnnModel::<InferBackend>::new(cfg, device);
+                let mut gnn = GnnModel::<CpuBackend>::new(cfg, device);
                 gnn.load_from(&mut store).expect("failed to load model");
                 HexGoModel::Gnn(gnn)
             }
@@ -65,8 +65,8 @@ impl BurnNeuralNetwork {
         }
     }
     #[allow(clippy::clone_on_copy)]
-    pub fn from_model(model: &HexGoModel<InferBackend>) -> Self {
-        let device: &InferDevice = &Default::default();
+    pub fn from_model(model: &HexGoModel<CpuBackend>) -> Self {
+        let device: &CpuDevice = &Default::default();
         Self {
             model: model.clone(),
             // `Device` is a type alias: `FlexDevice` is `Copy`, `CudaDevice` is not.
@@ -82,17 +82,17 @@ impl NeuralNetwork for BurnNeuralNetwork {
             HexGoModel::Mlp(m) => {
                 let input = encode_game_mlp(game, player);
 
-                let input_tensor = Tensor::<InferBackend, 2>::from_data(
-                    TensorData::new(input, [1, INPUT_SIZE]),
+                let input_tensor = Tensor::<CpuBackend, 2>::from_data(
+                    TensorData::new(input, [1, MLP_INPUT_SIZE]),
                     &self.device,
                 );
 
                 m.forward(input_tensor)
             }
             HexGoModel::Gnn(m) => {
-                let x = encode_game_gnn_tensor::<InferBackend>(game, player, &self.device)
+                let x = encode_game_gnn_tensor::<CpuBackend>(game, player, &self.device)
                     .unsqueeze::<3>();
-                let adj = adjacency_tensor::<InferBackend>(game.board(), &self.device);
+                let adj = adjacency_tensor::<CpuBackend>(game.board(), &self.device);
                 m.forward(x, adj)
             }
         };
