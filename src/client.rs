@@ -13,6 +13,7 @@ mod board;
 mod input;
 mod layout;
 mod materials;
+pub mod menu;
 pub mod state;
 mod style;
 mod sync;
@@ -37,6 +38,7 @@ pub struct ClientPlugin;
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
+            .add_plugins(menu::MenuPlugin)
             .insert_resource(ClearColor(board::BOARD_BACKGROUND))
             .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
