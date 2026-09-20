@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::client::input::ButtonAction;
+use crate::client::state::InGameEntity;
 
 pub mod rules_summary;
 
@@ -129,6 +130,7 @@ fn rules_text_node() -> Node {
 fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             ResponsiveElement::ControlPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -265,6 +267,7 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
 fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             ModalOverlay,
             Node {
                 display: Display::None,
@@ -314,6 +317,7 @@ fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
 fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             RulesOverlay,
             Node {
                 display: Display::None,

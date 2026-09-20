@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::client::SessionResource;
 use crate::client::materials::StoneMaterials;
+use crate::client::state::InGameEntity;
 use crate::game::board::VertexId;
 
 pub const BOARD_BACKGROUND: Color = Color::srgb(0.84, 0.69, 0.39);
@@ -32,7 +33,12 @@ pub fn setup_board(
     stone_materials: Res<StoneMaterials>,
 ) {
     let root = commands
-        .spawn((BoardRoot, Transform::default(), Visibility::Visible))
+        .spawn((
+            BoardRoot,
+            InGameEntity,
+            Transform::default(),
+            Visibility::Visible,
+        ))
         .id();
 
     commands.entity(root).with_children(|parent| {
