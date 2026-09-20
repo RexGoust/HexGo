@@ -66,6 +66,8 @@ pub enum AdaptiveContent {
     Feedback,
     Result,
     ModalDialog,
+    ResultButtonGroup,
+    ResultButton,
 }
 
 fn load_cjk_font(asset_server: &Res<AssetServer>) -> Handle<Font> {
@@ -467,6 +469,8 @@ fn spawn_result_modal(
                     Node {
                         width: percent(90),
                         max_width: px(460),
+                        max_height: percent(94),
+                        overflow: Overflow::scroll_y(),
                         padding: UiRect::all(px(24)),
                         flex_direction: FlexDirection::Column,
                         row_gap: px(14),
@@ -485,34 +489,48 @@ fn spawn_result_modal(
                     dialog.spawn((ResultModalTitle, text_bundle("", font, 19.0, ACCENT)));
                     dialog.spawn((ResultModalDetails, text_bundle("", font, 15.0, MUTED_TEXT)));
                     dialog
-                        .spawn((Node {
-                            width: percent(100),
-                            flex_direction: FlexDirection::Row,
-                            column_gap: px(8),
-                            margin: UiRect::top(px(6)),
-                            ..default()
-                        },))
+                        .spawn((
+                            AdaptiveContent::ResultButtonGroup,
+                            Node {
+                                width: percent(100),
+                                flex_direction: FlexDirection::Row,
+                                flex_wrap: FlexWrap::Wrap,
+                                column_gap: px(8),
+                                row_gap: px(8),
+                                margin: UiRect::top(px(6)),
+                                ..default()
+                            },
+                        ))
                         .with_children(|buttons| {
-                            buttons.spawn(modal_action_button(
-                                ButtonAction::RestartDirect,
-                                "modal.play_again",
-                                store,
-                                lang,
-                                font,
+                            buttons.spawn((
+                                AdaptiveContent::ResultButton,
+                                modal_action_button(
+                                    ButtonAction::RestartDirect,
+                                    "modal.play_again",
+                                    store,
+                                    lang,
+                                    font,
+                                ),
                             ));
-                            buttons.spawn(modal_action_button(
-                                ButtonAction::MainMenu,
-                                "modal.main_menu",
-                                store,
-                                lang,
-                                font,
+                            buttons.spawn((
+                                AdaptiveContent::ResultButton,
+                                modal_action_button(
+                                    ButtonAction::CloseResult,
+                                    "modal.view_board",
+                                    store,
+                                    lang,
+                                    font,
+                                ),
                             ));
-                            buttons.spawn(modal_action_button(
-                                ButtonAction::CloseResult,
-                                "modal.view_board",
-                                store,
-                                lang,
-                                font,
+                            buttons.spawn((
+                                AdaptiveContent::ResultButton,
+                                modal_action_button(
+                                    ButtonAction::MainMenu,
+                                    "modal.main_menu",
+                                    store,
+                                    lang,
+                                    font,
+                                ),
                             ));
                         });
                 });
@@ -533,7 +551,7 @@ fn modal_action_button(
             flex_grow: 1.0,
             flex_basis: px(0),
             height: px(46),
-            padding: UiRect::horizontal(px(8)),
+            padding: UiRect::horizontal(px(6)),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
             border: UiRect::all(px(1)),
@@ -544,7 +562,16 @@ fn modal_action_button(
         BackgroundColor(BUTTON_BACKGROUND),
         children![(
             I18nKey(key),
-            text_bundle(store.t(lang, key), font, 16.0, TEXT_COLOR),
+            (
+                Text::new(store.t(lang, key)),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(15.0),
+                    ..default()
+                },
+                TextLayout::new(Justify::Center, LineBreak::NoWrap),
+                TextColor(TEXT_COLOR),
+            ),
         )],
     )
 }

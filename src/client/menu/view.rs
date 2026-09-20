@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, window::PrimaryWindow};
 
 use super::{
     styles::{
@@ -27,6 +27,14 @@ pub struct SideButton(pub Player);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DifficultyButton(pub AiDifficulty);
 
+/// Marker component for the container holding difficulty selection buttons.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DifficultyContainer;
+
+/// Marker component for the main menu card container.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MenuCard;
+
 /// Spawns the entire Main Menu UI tree.
 pub fn spawn_main_menu(
     mut commands: Commands,
@@ -51,6 +59,7 @@ pub fn spawn_main_menu(
         ))
         .with_children(|root| {
             root.spawn((
+                MenuCard,
                 Node {
                     width: percent(90),
                     max_width: px(520),
@@ -306,12 +315,15 @@ fn spawn_difficulty_selector(
                 styles::menu_text_bundle(store.t(lang, "menu.mcts_depth"), font, 14.0, TEXT_MUTED),
             ));
             section
-                .spawn((Node {
-                    width: percent(100),
-                    flex_direction: FlexDirection::Row,
-                    column_gap: px(10),
-                    ..default()
-                },))
+                .spawn((
+                    DifficultyContainer,
+                    Node {
+                        width: percent(100),
+                        flex_direction: FlexDirection::Row,
+                        column_gap: px(10),
+                        ..default()
+                    },
+                ))
                 .with_children(|row| {
                     spawn_option_button(
                         row,
@@ -464,9 +476,68 @@ fn spawn_ai_screen_actions(
         });
 }
 
+type MenuCardFilter = (
+    With<MenuCard>,
+    Without<DifficultyContainer>,
+    Without<DifficultyButton>,
+);
+
+/// Adapts main menu layout (such as difficulty button layout) between portrait/narrow and wide viewports.
+pub fn layout_menu(
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut container_query: Query<&mut Node, With<DifficultyContainer>>,
+    mut buttons_query: Query<&mut Node, (With<DifficultyButton>, Without<DifficultyContainer>)>,
+    mut card_query: Query<&mut Node, MenuCardFilter>,
+) {
+    let Some(win) = window.iter().next() else {
+        return;
+    };
+
+    let is_portrait = win.width() < win.height() || win.width() < 520.0;
+    for mut container in &mut container_query {
+        if is_portrait {
+            container.flex_direction = FlexDirection::Column;
+            container.row_gap = px(8);
+            container.column_gap = px(0);
+        } else {
+            container.flex_direction = FlexDirection::Row;
+            container.row_gap = px(0);
+            container.column_gap = px(10);
+        }
+    }
+
+    for mut btn_node in &mut buttons_query {
+        if is_portrait {
+            btn_node.width = percent(100);
+            btn_node.height = px(42);
+            btn_node.flex_grow = 0.0;
+        } else {
+            btn_node.width = Val::Auto;
+            btn_node.height = px(46);
+            btn_node.flex_grow = 1.0;
+        }
+    }
+
+    let is_compact_height = win.height() < 500.0;
+    for mut card_node in &mut card_query {
+        if is_compact_height {
+            card_node.padding = UiRect::axes(px(20), px(12));
+            card_node.row_gap = px(12);
+            card_node.max_height = percent(96);
+            card_node.overflow = Overflow::scroll_y();
+        } else {
+            card_node.padding = UiRect::axes(px(26), px(28));
+            card_node.row_gap = px(20);
+            card_node.max_height = percent(94);
+            card_node.overflow = Overflow::scroll_y();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::window::PrimaryWindow;
 
     #[test]
     fn menu_cleanup_removes_all_menu_entities() {
@@ -480,5 +551,73 @@ mod tests {
         app.update();
 
         assert!(app.world().get_entity(entity).is_err());
+    }
+
+    #[test]
+    fn difficulty_selector_switches_to_column_on_portrait_screens() {
+        let mut app = App::new();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let container = app
+            .world_mut()
+            .spawn((DifficultyContainer, Node::default()))
+            .id();
+        let btn = app
+            .world_mut()
+            .spawn((DifficultyButton(AiDifficulty::Normal), Node::default()))
+            .id();
+        let card = app.world_mut().spawn((MenuCard, Node::default())).id();
+
+        app.add_systems(Update, layout_menu);
+
+        // Portrait mobile screen (e.g. 390x844): difficulty buttons must be stacked in column to prevent overflow
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(390.0, 844.0);
+        app.update();
+
+        let node = app.world().get::<Node>(container).unwrap();
+        assert_eq!(node.flex_direction, FlexDirection::Column);
+        assert_eq!(node.row_gap, px(8));
+        assert_eq!(node.column_gap, px(0));
+
+        let btn_node = app.world().get::<Node>(btn).unwrap();
+        assert_eq!(btn_node.width, percent(100));
+        assert_eq!(btn_node.height, px(42));
+        assert_eq!(btn_node.flex_grow, 0.0);
+
+        // Landscape desktop screen (1280x800): difficulty buttons arrange in row
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(1280.0, 800.0);
+        app.update();
+
+        let node = app.world().get::<Node>(container).unwrap();
+        assert_eq!(node.flex_direction, FlexDirection::Row);
+        assert_eq!(node.row_gap, px(0));
+        assert_eq!(node.column_gap, px(10));
+
+        let btn_node = app.world().get::<Node>(btn).unwrap();
+        assert_eq!(btn_node.width, Val::Auto);
+        assert_eq!(btn_node.height, px(46));
+        assert_eq!(btn_node.flex_grow, 1.0);
+
+        // Landscape mobile screen (800x360): card uses compact padding and scroll
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(800.0, 360.0);
+        app.update();
+
+        let card_node = app.world().get::<Node>(card).unwrap();
+        assert_eq!(card_node.max_height, percent(96));
+        assert_eq!(card_node.overflow, Overflow::scroll_y());
     }
 }

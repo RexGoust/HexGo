@@ -27,12 +27,12 @@ For the web build, run `trunk serve` and open the displayed URL. Check desktop (
 
 Before testing the game itself, disable the browser cache and throttle the connection. Confirm that the web loading screen reports the current downloaded and total sizes, a stable transfer speed, an estimated remaining time, and progress that reaches 100%. After the download, it must report that the game is starting and disappear only when initialization succeeds. Reload with the WASM cached and confirm that the loading screen still transitions cleanly without stale values. Test offline mode and confirm that a readable failure message and a focused Reload button remain available. Repeat these checks at each desktop and phone viewport listed above, including with reduced-motion emulation enabled.
 
-1. Resize the window below 800 logical pixels wide or to portrait orientation. Confirm that the controls move below the board, the four action buttons form a fully visible two-by-two grid, and desktop-only headings and keyboard help are hidden.
-2. Confirm that the board remains centered and fully visible above the bottom panel without overlapping it.
+1. Resize the window to portrait orientation (e.g. 360×640 or 390×844). Confirm that in-game controls move below the board, the action buttons wrap neatly, and desktop-only headings and keyboard help are hidden. In the AI setup screen on portrait screens, confirm that difficulty options stack vertically without horizontal overflow. When rotated to landscape (e.g. 800×360 or 640×360), confirm that the controls are placed beside the board on the right as a compact sidebar, keeping the board large and fully visible.
+2. Confirm that the board remains centered and fully visible without overlapping controls in both portrait and landscape orientations.
 3. On a touch-capable device, tap several empty intersections and confirm that each tap places exactly one stone at the nearest intersection.
-4. Tap the bottom-panel actions and confirm that the tap does not also place a stone on the board.
+4. Tap the control panel actions and confirm that the tap does not also place a stone on the board.
 5. Open Game Rules on a touch-capable device, swipe the rule text both upward and downward, and confirm that the content scrolls in the matching direction and remains within its bounds. Close the dialog and confirm that the game state is unchanged.
-6. End a game and confirm that the compact result summary fits in the bottom panel. Return to a wide landscape window and confirm that the detailed result card returns.
+6. End a game and confirm that the result modal displays cleanly. Return to a wide landscape desktop window and confirm that the detailed result card returns.
 
 ## Keyboard Play
 
