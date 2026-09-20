@@ -146,3 +146,26 @@ jobs:
           generate_release_notes: true
           files: artifacts/*
           prerelease: ${{ needs.get-version.outputs.prerelease == 'true' }}
+
+      - name: Setup Butler
+        uses: remarkablegames/setup-butler@v3
+
+      - name: Publish to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::error::BUTLER_API_KEY is empty. Please configure the BUTLER_API_KEY repository secret."
+            exit 1
+          fi
+
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ITCH_TARGET="zhenyan121/hexgo"
+
+          echo "Publishing HexGo v${VERSION} to itch.io (${ITCH_TARGET})..."
+
+          butler push "artifacts/HexGo-${VERSION}-windows-x86_64.zip" "${ITCH_TARGET}:windows-x64" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-${VERSION}-linux-x86_64.zip" "${ITCH_TARGET}:linux-x64" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-${VERSION}-macos-arm64.zip" "${ITCH_TARGET}:osx-arm64" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-${VERSION}-android-arm64.apk" "${ITCH_TARGET}:android" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-${VERSION}-web.zip" "${ITCH_TARGET}:html5" --userversion "${VERSION}"
