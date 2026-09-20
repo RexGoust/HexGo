@@ -12,6 +12,8 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::touch::TouchPhase;
 use bevy::{prelude::*, window::PrimaryWindow};
 
+use crate::client::state::AppState;
+
 pub(super) const HIT_RADIUS: f32 = 0.46;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
@@ -23,6 +25,7 @@ pub enum ButtonAction {
     Confirm,
     Cancel,
     CloseRules,
+    MainMenu,
 }
 
 pub fn vertex_at_screen_position(
@@ -115,6 +118,7 @@ pub(super) fn handle_keyboard(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut session: ResMut<SessionResource>,
     mut ui: ResMut<UiState>,
+    mut next_state: ResMut<NextState<AppState>>,
 ) {
     if let Some(modal) = ui.modal {
         if keyboard.just_pressed(KeyCode::Escape) {
@@ -163,6 +167,7 @@ pub(super) fn handle_keyboard(
             FocusTarget::Resign => request_resign(&session.0, &mut ui),
             FocusTarget::Restart => ui.modal = Some(ModalKind::Restart),
             FocusTarget::Rules => open_rules(&mut ui),
+            FocusTarget::MainMenu => next_state.set(AppState::MainMenu),
             FocusTarget::Board => {}
         }
     }
@@ -200,6 +205,7 @@ pub(super) fn handle_buttons(
     interactions: Query<(&Interaction, &ButtonAction), Changed<Interaction>>,
     mut session: ResMut<SessionResource>,
     mut ui: ResMut<UiState>,
+    mut next_state: ResMut<NextState<AppState>>,
 ) {
     for (interaction, action) in &interactions {
         if *interaction != Interaction::Pressed {
@@ -223,6 +229,10 @@ pub(super) fn handle_buttons(
             ButtonAction::Rules if ui.modal.is_none() => {
                 ui.focus = FocusTarget::Rules;
                 open_rules(&mut ui);
+            }
+            ButtonAction::MainMenu if ui.modal.is_none() => {
+                ui.focus = FocusTarget::MainMenu;
+                next_state.set(AppState::MainMenu);
             }
             ButtonAction::Confirm => {
                 if let Some(modal) = ui.modal {
@@ -397,5 +407,28 @@ mod tests {
         assert_eq!(ui.modal, None);
         assert!(ui.feedback_is_error);
         assert_eq!(ui.feedback, error_message(SessionError::GameOver));
+    }
+
+    #[test]
+    fn main_menu_button_triggers_state_transition() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::Local)));
+        app.init_resource::<UiState>();
+
+        // Set state to InGame first
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::InGame);
+        app.update();
+
+        app.add_systems(Update, handle_buttons);
+        app.world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::MainMenu));
+        app.update();
+
+        let next_state = app.world().resource::<NextState<AppState>>();
+        assert!(matches!(next_state, NextState::Pending(AppState::MainMenu)));
     }
 }

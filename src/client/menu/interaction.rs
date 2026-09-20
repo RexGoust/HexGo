@@ -76,23 +76,20 @@ pub fn sync_menu_screen_visibility(
 /// Synchronizes selection highlights (borders) on side and difficulty buttons.
 pub fn sync_menu_selection_styles(
     config: Res<MenuSetupConfig>,
-    mut side_buttons: Query<(&SideButton, &mut BorderColor)>,
-    mut diff_buttons: Query<(&DifficultyButton, &mut BorderColor)>,
+    mut buttons: Query<(
+        &mut BorderColor,
+        Option<&SideButton>,
+        Option<&DifficultyButton>,
+    )>,
 ) {
-    for (side_btn, mut border) in &mut side_buttons {
-        *border = BorderColor::all(if side_btn.0 == config.player_color {
-            ACCENT
-        } else {
-            Color::NONE
-        });
-    }
+    for (mut border, side, diff) in &mut buttons {
+        let is_selected = match (side, diff) {
+            (Some(side_btn), _) => side_btn.0 == config.player_color,
+            (_, Some(diff_btn)) => diff_btn.0 == config.difficulty,
+            _ => continue,
+        };
 
-    for (diff_btn, mut border) in &mut diff_buttons {
-        *border = BorderColor::all(if diff_btn.0 == config.difficulty {
-            ACCENT
-        } else {
-            Color::NONE
-        });
+        *border = BorderColor::all(if is_selected { ACCENT } else { Color::NONE });
     }
 }
 
@@ -208,5 +205,25 @@ mod tests {
         assert_eq!(config.screen, MenuScreen::AiSetup);
         assert_eq!(config.difficulty, AiDifficulty::Simple);
         assert_eq!(config.player_color, Player::White);
+    }
+
+    #[test]
+    fn all_menu_interaction_systems_can_initialize_without_query_conflicts() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::Local)));
+        app.init_resource::<AiConfig>();
+        app.init_resource::<MenuSetupConfig>();
+        app.add_systems(
+            Update,
+            (
+                handle_menu_actions,
+                sync_menu_screen_visibility,
+                sync_menu_selection_styles,
+                style_menu_buttons,
+            ),
+        );
+        app.update();
     }
 }

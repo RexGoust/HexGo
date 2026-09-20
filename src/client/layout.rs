@@ -97,9 +97,9 @@ pub fn layout_control_panel(
             }
             (ResponsiveElement::ActionGroup, true) => {
                 node.display = Display::Grid;
-                node.height = px(104);
+                node.height = px(148);
                 node.grid_template_columns = RepeatedGridTrack::flex(2, 1.0);
-                node.grid_template_rows = RepeatedGridTrack::px(2, 48.0);
+                node.grid_template_rows = RepeatedGridTrack::px(3, 44.0);
                 node.column_gap = px(8);
                 node.row_gap = px(8);
             }

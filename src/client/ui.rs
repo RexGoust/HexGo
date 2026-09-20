@@ -218,6 +218,10 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                         ResponsiveElement::ActionButton,
                         action_button(ButtonAction::Rules, "游戏规则", font),
                     ));
+                    actions.spawn((
+                        ResponsiveElement::ActionButton,
+                        action_button(ButtonAction::MainMenu, "返回主菜单", font),
+                    ));
                 });
             panel
                 .spawn((

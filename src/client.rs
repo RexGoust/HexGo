@@ -160,16 +160,18 @@ enum FocusTarget {
     Resign,
     Restart,
     Rules,
+    MainMenu,
 }
 
 impl FocusTarget {
     fn next(self, reverse: bool) -> Self {
-        const ORDER: [FocusTarget; 5] = [
+        const ORDER: [FocusTarget; 6] = [
             FocusTarget::Board,
             FocusTarget::Pass,
             FocusTarget::Resign,
             FocusTarget::Restart,
             FocusTarget::Rules,
+            FocusTarget::MainMenu,
         ];
         let index = ORDER
             .iter()
@@ -266,8 +268,8 @@ mod tests {
     #[test]
     fn focus_cycle_is_reversible() {
         assert_eq!(FocusTarget::Board.next(false), FocusTarget::Pass);
-        assert_eq!(FocusTarget::Board.next(true), FocusTarget::Rules);
-        assert_eq!(FocusTarget::Rules.next(false), FocusTarget::Board);
+        assert_eq!(FocusTarget::Board.next(true), FocusTarget::MainMenu);
+        assert_eq!(FocusTarget::MainMenu.next(false), FocusTarget::Board);
     }
 
     #[test]
