@@ -73,6 +73,34 @@ pub struct TrainingConfig {
     pub infer_device: DeviceKind,
 }
 
+use std::fmt;
+
+impl fmt::Display for TrainingConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TrainingConfig {{ games: {}, iterations: {}, runs: {}, \
+             start_version: {}, epochs: {}, batch_size: {}, no_skip: {}, \
+             store_type: {}, force_save: {}, model_type: {}, reuse_data: {}, \
+             no_eval: {}, infer_size: {}, infer_device: {} }}",
+            self.games,
+            self.iterations,
+            self.runs,
+            self.start_version,
+            self.epochs,
+            self.batch_size,
+            self.no_skip,
+            self.store_type,
+            self.force_save,
+            self.model_type,
+            self.reuse_data,
+            self.no_eval,
+            self.infer_size,
+            self.infer_device,
+        )
+    }
+}
+
 impl From<TrainArgs> for TrainingConfig {
     fn from(args: TrainArgs) -> Self {
         Self {
@@ -380,6 +408,8 @@ impl Pipeline {
     }
 
     pub fn run(&mut self) {
+        println!("{}", self.config);
+
         let train_device = &cuda_device();
 
         if self.current_version == 0 {

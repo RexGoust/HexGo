@@ -51,7 +51,7 @@ bevy = {
 [features]
 default = ["cpu"]
 cpu = []
-cuda = ["burn/cuda"]
+cuda = ["burn/cuda","burn/fusion"]
 
 [package.metadata.android]
 version-code = 3

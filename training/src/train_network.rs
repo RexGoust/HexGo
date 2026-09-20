@@ -2,13 +2,15 @@ use burn::Tensor;
 use burn::tensor::TensorData;
 use burn::tensor::activation::softmax;
 use burn::tensor::backend::Backend;
+use hex_go::ai::backend::{CpuBackend, CpuDevice};
 use hex_go::ai::encoder::{MLP_INPUT_SIZE, VERTEX_COUNT};
 
 use hex_go::ai::model::HexGoModel;
 use hex_go::ai::model::gnn::FEATURE_DIM;
 use hex_go::game::action::{ACTION_SIZE, Action, PASS_INDEX};
 use hex_go::game::board::VertexId;
-
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+pub const GPU_MIN_BATCH: usize = 64;
 pub fn forward_batch<B: Backend>(
     model: &HexGoModel<B>,
     device: &B::Device,
@@ -71,5 +73,29 @@ pub fn forward_batch<B: Backend>(
         policies.push(policy);
     }
 
+    (policies, values)
+}
+
+pub fn forward_batch_cpu_parallel(
+    model: &HexGoModel<CpuBackend>,
+    device: &CpuDevice,
+    adj: &Tensor<CpuBackend, 2>,
+    inputs: &[Vec<f32>],
+) -> (Vec<Vec<(Action, f32)>>, Vec<f32>) {
+    let results: Vec<(Vec<(Action, f32)>, f32)> = inputs
+        .par_iter()
+        .map(|input| {
+            let single_ref = [input];
+            let (mut pols, vals) = forward_batch(model, device, adj, &single_ref);
+            (pols.remove(0), vals[0])
+        })
+        .collect();
+
+    let mut policies = Vec::with_capacity(results.len());
+    let mut values = Vec::with_capacity(results.len());
+    for (p, v) in results {
+        policies.push(p);
+        values.push(v);
+    }
     (policies, values)
 }

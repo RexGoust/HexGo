@@ -3,8 +3,11 @@
 use burn::{Tensor, tensor::backend::Backend};
 use hex_go::{
     ai::{
+        backend::{CpuBackend, cpu_device, switch_model_backend},
+        burn_neural_network::BurnNeuralNetwork,
         encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp},
         model::HexGoModel,
+        neural_mcts::{NeuralConfig, NeuralMcts},
         search::Search,
     },
     board_layout::BoardDefinition,
@@ -21,7 +24,7 @@ use crate::{
     game_slot::GameSlot,
     model_type::ModelType,
     sampler::sample_action_by_temperature,
-    train_network::forward_batch,
+    train_network::{GPU_MIN_BATCH, forward_batch, forward_batch_cpu_parallel},
 };
 use rayon::prelude::*;
 
@@ -121,6 +124,8 @@ where
     S: Search,
     F: Fn() -> S + Sync,
 {
+    println!("generate samples local");
+    println!("total games: {games}");
     (0..games)
         .into_par_iter()
         .flat_map(|_| {
@@ -143,11 +148,30 @@ pub fn generate_samples_batched<B>(
 where
     B: Backend,
 {
+    if total_games < GPU_MIN_BATCH || batch_size < GPU_MIN_BATCH {
+        println!(
+            "total games {total_games} or infer batch size {batch_size} is too small,\n less than {GPU_MIN_BATCH} fallback to cpu"
+        );
+        let cpu_dev = cpu_device();
+        let cpu_model = switch_model_backend::<B, CpuBackend>(model, &cpu_dev);
+        return generate_samples_local(model_type, total_games, iterations, || {
+            NeuralMcts::new(
+                BurnNeuralNetwork::from_model(&cpu_model),
+                NeuralConfig { add_noise: true },
+            )
+        });
+    }
+
     let mut samples = Vec::new();
     let mut completed = 0;
     let initial_games = batch_size.min(total_games);
     let count_0 = initial_games.div_ceil(2);
     let count_1 = initial_games - count_0;
+
+    println!("generate samples batched");
+    println!(
+        "infer batch size: {batch_size}, total_games: {total_games},slot0 games: {count_0}, slot1 games: {count_1}"
+    );
 
     let mut slots = [GameSlot::new(count_0), GameSlot::new(count_1)];
     let mut started = slots[0].games.len() + slots[1].games.len();
@@ -160,14 +184,28 @@ where
         _ => Tensor::zeros([1, 1], device),
     };
 
+    let cpu_dev = cpu_device();
+    let cpu_model = switch_model_backend::<B, CpuBackend>(model.clone(), &cpu_dev);
+    let cpu_adj = match &cpu_model {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<CpuBackend>(&board, &cpu_dev)
+        }
+        _ => Tensor::zeros([1, 1], &cpu_dev),
+    };
+
     std::thread::scope(|s| {
         let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>)>(2);
         let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
 
         s.spawn(move || {
             while let Ok((id, inputs)) = req_rx.recv() {
-                let refs: Vec<&Vec<f32>> = inputs.iter().collect();
-                let res = forward_batch(&model, device, &adj, &refs);
+                let res = if inputs.len() >= GPU_MIN_BATCH {
+                    let refs: Vec<&Vec<f32>> = inputs.iter().collect();
+                    forward_batch(&model, device, &adj, &refs)
+                } else {
+                    forward_batch_cpu_parallel(&cpu_model, &cpu_dev, &cpu_adj, &inputs)
+                };
                 if resp_tx.send((id, res)).is_err() {
                     break;
                 }
