@@ -13,9 +13,13 @@ mod board;
 mod input;
 mod layout;
 mod materials;
+pub mod menu;
+pub mod state;
 mod style;
 mod sync;
 mod ui;
+pub use state::{AppState, InGameEntity};
+
 const RULES_SCROLL_LINE: f32 = 28.0;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,7 +37,9 @@ pub struct ClientPlugin;
 
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ClearColor(board::BOARD_BACKGROUND))
+        app.init_state::<AppState>()
+            .add_plugins(menu::MenuPlugin)
+            .insert_resource(ClearColor(board::BOARD_BACKGROUND))
             .insert_resource(SessionResource(GameSession::compact(GameMode::AI(Black))))
             .insert_resource(WorkerResource(Worker::new()))
             .insert_resource(NeuralNetworkResource {
@@ -53,7 +59,8 @@ impl Plugin for ClientPlugin {
                 GameSystemSet::Sync,
                 GameSystemSet::Style,
             )
-                .chain(),
+                .chain()
+                .run_if(in_state(AppState::InGame)),
         );
 
         add_layout_system(app);
@@ -66,14 +73,28 @@ impl Plugin for ClientPlugin {
 fn setup(app: &mut App) {
     app.add_systems(
         Startup,
-        (
-            setup_camera,
-            materials::setup_stone_materials,
-            board::setup_board,
-            ui::setup_ui,
-        )
-            .chain(),
+        (setup_camera, materials::setup_stone_materials).chain(),
     );
+
+    app.add_systems(
+        OnEnter(AppState::InGame),
+        (board::setup_board, ui::setup_ui).chain(),
+    );
+
+    app.add_systems(OnExit(AppState::InGame), cleanup_in_game);
+}
+
+fn cleanup_in_game(
+    mut commands: Commands,
+    query: Query<Entity, With<InGameEntity>>,
+    mut ui_state: ResMut<UiState>,
+    mut ai_state: ResMut<AiState>,
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
+    *ui_state = UiState::default();
+    *ai_state = AiState::default();
 }
 
 fn add_layout_system(app: &mut App) {
@@ -119,6 +140,7 @@ fn add_sync_system(app: &mut App) {
             sync::sync_feedback,
             sync::sync_modal,
             sync::sync_rules_modal,
+            sync::sync_result_modal,
         )
             .in_set(GameSystemSet::Sync),
     );
@@ -139,16 +161,18 @@ enum FocusTarget {
     Resign,
     Restart,
     Rules,
+    MainMenu,
 }
 
 impl FocusTarget {
     fn next(self, reverse: bool) -> Self {
-        const ORDER: [FocusTarget; 5] = [
+        const ORDER: [FocusTarget; 6] = [
             FocusTarget::Board,
             FocusTarget::Pass,
             FocusTarget::Resign,
             FocusTarget::Restart,
             FocusTarget::Rules,
+            FocusTarget::MainMenu,
         ];
         let index = ORDER
             .iter()
@@ -164,6 +188,7 @@ enum ModalKind {
     Resign,
     Restart,
     Rules,
+    Result,
 }
 
 #[derive(Resource, Default)]
@@ -174,6 +199,7 @@ pub(crate) struct UiState {
     modal: Option<ModalKind>,
     feedback: String,
     feedback_is_error: bool,
+    result_modal_seen: bool,
 }
 
 pub fn setup_camera(mut commands: Commands) {
@@ -245,8 +271,8 @@ mod tests {
     #[test]
     fn focus_cycle_is_reversible() {
         assert_eq!(FocusTarget::Board.next(false), FocusTarget::Pass);
-        assert_eq!(FocusTarget::Board.next(true), FocusTarget::Rules);
-        assert_eq!(FocusTarget::Rules.next(false), FocusTarget::Board);
+        assert_eq!(FocusTarget::Board.next(true), FocusTarget::MainMenu);
+        assert_eq!(FocusTarget::MainMenu.next(false), FocusTarget::Board);
     }
 
     #[test]

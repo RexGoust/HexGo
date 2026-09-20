@@ -30,7 +30,12 @@ pub(super) fn style_buttons(
             ButtonAction::Resign => ui.focus == FocusTarget::Resign,
             ButtonAction::Restart => ui.focus == FocusTarget::Restart,
             ButtonAction::Rules => ui.focus == FocusTarget::Rules,
-            ButtonAction::Confirm | ButtonAction::Cancel | ButtonAction::CloseRules => false,
+            ButtonAction::MainMenu => ui.focus == FocusTarget::MainMenu,
+            ButtonAction::Confirm
+            | ButtonAction::Cancel
+            | ButtonAction::CloseRules
+            | ButtonAction::CloseResult
+            | ButtonAction::RestartDirect => false,
         };
         background.0 = if disabled {
             Color::srgb(0.23, 0.17, 0.12)

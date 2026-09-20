@@ -1,10 +1,14 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{prelude::*, ui::GridPlacement, window::PrimaryWindow};
 
 use crate::client::{
     SessionResource,
     board::*,
     ui::{AdaptiveContent, ResponsiveElement, SIDEBAR_WIDTH},
 };
+
+pub const MOBILE_BUTTON_WIDTH: f32 = 154.0;
+pub const MOBILE_BUTTON_HEIGHT: f32 = 46.0;
+pub const MOBILE_PANEL_CONTENT_MAX_WIDTH: f32 = 340.0;
 
 const MOBILE_PANEL_HEIGHT: f32 = 288.0;
 const MOBILE_PANEL_MAX_HEIGHT_RATIO: f32 = 0.55;
@@ -61,8 +65,8 @@ pub fn layout_control_panel(
                 node.bottom = px(0);
                 node.width = percent(100);
                 node.height = px(mobile_panel_height(window.height()));
-                node.padding = UiRect::all(px(14));
-                node.row_gap = px(8);
+                node.padding = UiRect::new(px(14), px(14), px(10), px(10));
+                node.row_gap = px(6);
             }
             (ResponsiveElement::ControlPanel, false) => {
                 node.left = Val::Auto;
@@ -82,35 +86,52 @@ pub fn layout_control_panel(
                 };
             }
             (ResponsiveElement::StatusGroup, true) => {
-                node.flex_direction = FlexDirection::Row;
-                node.flex_wrap = FlexWrap::Wrap;
-                node.column_gap = px(8);
-                node.justify_content = JustifyContent::SpaceBetween;
-                node.row_gap = px(0);
+                node.flex_direction = FlexDirection::Column;
+                node.flex_wrap = FlexWrap::NoWrap;
+                node.column_gap = px(0);
+                node.justify_content = JustifyContent::Center;
+                node.align_items = AlignItems::Center;
+                node.row_gap = px(4);
+                node.width = percent(100);
+                node.max_width = px(MOBILE_PANEL_CONTENT_MAX_WIDTH);
+                node.align_self = AlignSelf::Center;
             }
             (ResponsiveElement::StatusGroup, false) => {
                 node.flex_direction = FlexDirection::Column;
                 node.flex_wrap = FlexWrap::NoWrap;
                 node.column_gap = px(0);
                 node.justify_content = JustifyContent::FlexStart;
+                node.align_items = AlignItems::FlexStart;
                 node.row_gap = px(16);
+                node.width = percent(100);
+                node.max_width = Val::Auto;
+                node.align_self = AlignSelf::Auto;
             }
             (ResponsiveElement::ActionGroup, true) => {
-                node.display = Display::Grid;
-                node.height = px(104);
-                node.grid_template_columns = RepeatedGridTrack::flex(2, 1.0);
-                node.grid_template_rows = RepeatedGridTrack::px(2, 48.0);
+                node.display = Display::Flex;
+                node.flex_direction = FlexDirection::Row;
+                node.flex_wrap = FlexWrap::Wrap;
+                node.justify_content = JustifyContent::Center;
+                node.align_items = AlignItems::Center;
+                node.align_self = AlignSelf::Center;
                 node.column_gap = px(8);
-                node.row_gap = px(8);
+                node.row_gap = px(6);
+                node.width = percent(100);
+                node.max_width = px(MOBILE_PANEL_CONTENT_MAX_WIDTH);
+                node.height = Val::Auto;
             }
             (ResponsiveElement::ActionGroup, false) => {
                 node.display = Display::Flex;
-                node.height = Val::Auto;
-                node.grid_template_columns.clear();
-                node.grid_template_rows.clear();
                 node.flex_direction = FlexDirection::Column;
+                node.flex_wrap = FlexWrap::NoWrap;
+                node.justify_content = JustifyContent::FlexStart;
+                node.align_items = AlignItems::Stretch;
+                node.align_self = AlignSelf::Auto;
                 node.column_gap = px(0);
                 node.row_gap = px(16);
+                node.width = percent(100);
+                node.max_width = Val::Auto;
+                node.height = Val::Auto;
             }
             (ResponsiveElement::ActionButton, true) => {
                 layout_action_button(&mut node, true);
@@ -124,32 +145,54 @@ pub fn layout_control_panel(
 
 pub fn layout_action_button(node: &mut Node, is_mobile: bool) {
     if is_mobile {
-        node.width = percent(100);
-        node.min_width = px(0);
+        node.width = px(MOBILE_BUTTON_WIDTH);
+        node.height = px(MOBILE_BUTTON_HEIGHT);
+        node.min_width = px(MOBILE_BUTTON_WIDTH);
+        node.max_width = px(MOBILE_BUTTON_WIDTH);
         node.flex_basis = Val::Auto;
         node.flex_grow = 0.0;
+        node.flex_shrink = 0.0;
+        node.padding = UiRect::horizontal(px(10));
+        node.grid_column = GridPlacement::default();
     } else {
         node.width = percent(100);
+        node.height = px(48);
         node.min_width = Val::Auto;
+        node.max_width = Val::Auto;
         node.flex_basis = Val::Auto;
         node.flex_grow = 0.0;
+        node.flex_shrink = 0.0;
+        node.padding = UiRect::horizontal(px(16));
+        node.grid_column = GridPlacement::default();
     }
 }
 
 pub fn layout_mobile_content(
     window: Single<&Window, With<PrimaryWindow>>,
-    mut content: Query<(&AdaptiveContent, &mut Node)>,
+    mut content: Query<(&AdaptiveContent, &mut Node, Option<&mut TextLayout>)>,
 ) {
     let is_mobile = responsive_layout(Vec2::new(window.width(), window.height())).panel_on_bottom;
-    for (kind, mut node) in &mut content {
+    for (kind, mut node, mut text_layout) in &mut content {
         match (kind, is_mobile) {
             (AdaptiveContent::Feedback, true) => {
-                node.min_height = px(32);
+                node.min_height = px(22);
                 node.margin = UiRect::ZERO;
+                node.width = Val::Auto;
+                node.max_width = px(MOBILE_PANEL_CONTENT_MAX_WIDTH);
+                node.align_self = AlignSelf::Center;
+                if let Some(ref mut layout) = text_layout {
+                    layout.justify = Justify::Center;
+                }
             }
             (AdaptiveContent::Feedback, false) => {
                 node.min_height = px(52);
                 node.margin = UiRect::vertical(px(8));
+                node.width = percent(100);
+                node.max_width = Val::Auto;
+                node.align_self = AlignSelf::Auto;
+                if let Some(ref mut layout) = text_layout {
+                    layout.justify = Justify::Left;
+                }
             }
             (AdaptiveContent::Result, true) => {
                 node.margin = UiRect::top(px(4));
@@ -247,6 +290,14 @@ mod tests {
             .world_mut()
             .spawn((ResponsiveElement::StatusGroup, Node::default()))
             .id();
+        let actions = app
+            .world_mut()
+            .spawn((ResponsiveElement::ActionGroup, Node::default()))
+            .id();
+        let action_btn = app
+            .world_mut()
+            .spawn((ResponsiveElement::ActionButton, Node::default()))
+            .id();
         app.add_systems(Update, layout_control_panel);
 
         for (width, height, mobile) in [
@@ -272,11 +323,30 @@ mod tests {
             );
             let node = app.world().get::<Node>(status).unwrap();
             assert_eq!(
-                node.flex_wrap,
+                node.align_items,
                 if mobile {
-                    FlexWrap::Wrap
+                    AlignItems::Center
                 } else {
-                    FlexWrap::NoWrap
+                    AlignItems::FlexStart
+                }
+            );
+            assert_eq!(node.row_gap, if mobile { px(4) } else { px(16) });
+            let node = app.world().get::<Node>(actions).unwrap();
+            assert_eq!(
+                node.justify_content,
+                if mobile {
+                    JustifyContent::Center
+                } else {
+                    JustifyContent::FlexStart
+                }
+            );
+            let node = app.world().get::<Node>(action_btn).unwrap();
+            assert_eq!(
+                node.height,
+                if mobile {
+                    px(MOBILE_BUTTON_HEIGHT)
+                } else {
+                    px(48)
                 }
             );
             let layout = responsive_layout(Vec2::new(width, height));
@@ -290,9 +360,58 @@ mod tests {
 
         layout_action_button(&mut node, true);
 
-        assert_eq!(node.width, percent(100));
-        assert_eq!(node.min_width, px(0));
-        assert_eq!(node.flex_basis, Val::Auto);
+        assert_eq!(node.width, px(MOBILE_BUTTON_WIDTH));
+        assert_eq!(node.height, px(MOBILE_BUTTON_HEIGHT));
+        assert_eq!(node.min_width, px(MOBILE_BUTTON_WIDTH));
+        assert_eq!(node.max_width, px(MOBILE_BUTTON_WIDTH));
         assert_eq!(node.flex_grow, 0.0);
+
+        layout_action_button(&mut node, false);
+        assert_eq!(node.width, percent(100));
+        assert_eq!(node.height, px(48));
+    }
+
+    #[test]
+    fn feedback_text_is_centered_on_mobile() {
+        let mut app = App::new();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let feedback = app
+            .world_mut()
+            .spawn((
+                AdaptiveContent::Feedback,
+                Node::default(),
+                TextLayout::new(Justify::Left, LineBreak::NoWrap),
+            ))
+            .id();
+        app.add_systems(Update, layout_mobile_content);
+
+        // Mobile
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(360.0, 640.0);
+        app.update();
+        let node = app.world().get::<Node>(feedback).unwrap();
+        let layout = app.world().get::<TextLayout>(feedback).unwrap();
+        assert_eq!(node.width, Val::Auto);
+        assert_eq!(node.align_self, AlignSelf::Center);
+        assert_eq!(layout.justify, Justify::Center);
+
+        // Desktop
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(1280.0, 800.0);
+        app.update();
+        let node = app.world().get::<Node>(feedback).unwrap();
+        let layout = app.world().get::<TextLayout>(feedback).unwrap();
+        assert_eq!(node.width, percent(100));
+        assert_eq!(node.align_self, AlignSelf::Auto);
+        assert_eq!(layout.justify, Justify::Left);
     }
 }

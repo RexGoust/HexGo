@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::client::input::ButtonAction;
+use crate::client::state::InGameEntity;
 
 pub mod rules_summary;
 
@@ -39,6 +40,15 @@ pub(super) struct ResultPanel;
 
 #[derive(Component)]
 pub(super) struct ResultText;
+
+#[derive(Component)]
+pub(super) struct ResultModalOverlay;
+
+#[derive(Component)]
+pub(super) struct ResultModalTitle;
+
+#[derive(Component)]
+pub(super) struct ResultModalDetails;
 
 #[derive(Component)]
 pub(super) struct ModalOverlay;
@@ -93,7 +103,7 @@ fn action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(BUTTON_BACKGROUND),
-        children![text_bundle(label, font, 17.0, TEXT_COLOR)],
+        children![text_bundle(label, font, 18.0, TEXT_COLOR)],
     )
 }
 
@@ -129,6 +139,7 @@ fn rules_text_node() -> Node {
 fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             ResponsiveElement::ControlPanel,
             Node {
                 position_type: PositionType::Absolute,
@@ -172,11 +183,11 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                 .with_children(|status| {
                     status.spawn((
                         CurrentPlayerText,
-                        text_bundle("当前执子：黑方", font, 23.0, TEXT_COLOR),
+                        text_bundle("当前执子：黑方", font, 22.0, TEXT_COLOR),
                     ));
                     status.spawn((
                         PassCountText,
-                        text_bundle("连续停着：0 / 2", font, 17.0, MUTED_TEXT),
+                        text_bundle("连续停着：0 / 2", font, 16.0, MUTED_TEXT),
                     ));
                 });
             panel.spawn((
@@ -216,10 +227,15 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                         ResponsiveElement::ActionButton,
                         action_button(ButtonAction::Rules, "游戏规则", font),
                     ));
+                    actions.spawn((
+                        ResponsiveElement::ActionButton,
+                        action_button(ButtonAction::MainMenu, "返回主菜单", font),
+                    ));
                 });
             panel
                 .spawn((
                     ResultPanel,
+                    ResponsiveElement::DesktopOnly,
                     AdaptiveContent::Result,
                     Node {
                         display: Display::None,
@@ -265,6 +281,7 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
 fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             ModalOverlay,
             Node {
                 display: Display::None,
@@ -314,6 +331,7 @@ fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
 fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
     commands
         .spawn((
+            InGameEntity,
             RulesOverlay,
             Node {
                 display: Display::None,
@@ -377,12 +395,104 @@ fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
         });
 }
 
+fn spawn_result_modal(commands: &mut Commands, font: &Handle<Font>) {
+    commands
+        .spawn((
+            InGameEntity,
+            ResultModalOverlay,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                width: percent(100),
+                height: percent(100),
+                padding: UiRect::all(px(20)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            GlobalZIndex(100),
+            BackgroundColor(Color::srgba(0.08, 0.055, 0.03, 0.82)),
+        ))
+        .with_children(|overlay| {
+            overlay
+                .spawn((
+                    AdaptiveContent::ModalDialog,
+                    Node {
+                        width: percent(90),
+                        max_width: px(460),
+                        padding: UiRect::all(px(24)),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(14),
+                        border_radius: BorderRadius::all(px(12)),
+                        border: UiRect::all(px(1)),
+                        ..default()
+                    },
+                    BorderColor::all(ACCENT),
+                    BackgroundColor(PANEL_BACKGROUND),
+                ))
+                .with_children(|dialog| {
+                    dialog.spawn(text_bundle("对局结束", font, 24.0, TEXT_COLOR));
+                    dialog.spawn((ResultModalTitle, text_bundle("", font, 19.0, ACCENT)));
+                    dialog.spawn((ResultModalDetails, text_bundle("", font, 15.0, MUTED_TEXT)));
+                    dialog
+                        .spawn((Node {
+                            width: percent(100),
+                            flex_direction: FlexDirection::Row,
+                            column_gap: px(8),
+                            margin: UiRect::top(px(6)),
+                            ..default()
+                        },))
+                        .with_children(|buttons| {
+                            buttons.spawn(modal_action_button(
+                                ButtonAction::RestartDirect,
+                                "再来一局",
+                                font,
+                            ));
+                            buttons.spawn(modal_action_button(
+                                ButtonAction::MainMenu,
+                                "返回主菜单",
+                                font,
+                            ));
+                            buttons.spawn(modal_action_button(
+                                ButtonAction::CloseResult,
+                                "查看棋盘",
+                                font,
+                            ));
+                        });
+                });
+        });
+}
+
+fn modal_action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl Bundle {
+    (
+        Button,
+        action,
+        Node {
+            flex_grow: 1.0,
+            flex_basis: px(0),
+            height: px(46),
+            padding: UiRect::horizontal(px(8)),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            border: UiRect::all(px(1)),
+            border_radius: BorderRadius::all(px(8)),
+            ..default()
+        },
+        BorderColor::all(Color::NONE),
+        BackgroundColor(BUTTON_BACKGROUND),
+        children![text_bundle(label, font, 16.0, TEXT_COLOR)],
+    )
+}
+
 pub fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = load_cjk_font(&asset_server);
 
     spawn_sidebar(&mut commands, &font);
     spawn_modal(&mut commands, &font);
     spawn_rules_modal(&mut commands, &font);
+    spawn_result_modal(&mut commands, &font);
 }
 
 #[cfg(test)]

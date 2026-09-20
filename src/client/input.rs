@@ -12,6 +12,8 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::touch::TouchPhase;
 use bevy::{prelude::*, window::PrimaryWindow};
 
+use crate::client::state::AppState;
+
 pub(super) const HIT_RADIUS: f32 = 0.46;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
@@ -23,6 +25,9 @@ pub enum ButtonAction {
     Confirm,
     Cancel,
     CloseRules,
+    MainMenu,
+    CloseResult,
+    RestartDirect,
 }
 
 pub fn vertex_at_screen_position(
@@ -115,6 +120,7 @@ pub(super) fn handle_keyboard(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut session: ResMut<SessionResource>,
     mut ui: ResMut<UiState>,
+    mut next_state: ResMut<NextState<AppState>>,
 ) {
     if let Some(modal) = ui.modal {
         if keyboard.just_pressed(KeyCode::Escape) {
@@ -163,6 +169,7 @@ pub(super) fn handle_keyboard(
             FocusTarget::Resign => request_resign(&session.0, &mut ui),
             FocusTarget::Restart => ui.modal = Some(ModalKind::Restart),
             FocusTarget::Rules => open_rules(&mut ui),
+            FocusTarget::MainMenu => next_state.set(AppState::MainMenu),
             FocusTarget::Board => {}
         }
     }
@@ -200,6 +207,7 @@ pub(super) fn handle_buttons(
     interactions: Query<(&Interaction, &ButtonAction), Changed<Interaction>>,
     mut session: ResMut<SessionResource>,
     mut ui: ResMut<UiState>,
+    mut next_state: ResMut<NextState<AppState>>,
 ) {
     for (interaction, action) in &interactions {
         if *interaction != Interaction::Pressed {
@@ -223,6 +231,17 @@ pub(super) fn handle_buttons(
             ButtonAction::Rules if ui.modal.is_none() => {
                 ui.focus = FocusTarget::Rules;
                 open_rules(&mut ui);
+            }
+            ButtonAction::MainMenu if ui.modal.is_none() || ui.modal == Some(ModalKind::Result) => {
+                ui.focus = FocusTarget::MainMenu;
+                ui.modal = None;
+                next_state.set(AppState::MainMenu);
+            }
+            ButtonAction::CloseResult => ui.modal = None,
+            ButtonAction::RestartDirect => {
+                ui.result_modal_seen = false;
+                ui.modal = None;
+                submit_command(&mut session.0, &mut ui, SessionCommand::Restart);
             }
             ButtonAction::Confirm => {
                 if let Some(modal) = ui.modal {
@@ -253,8 +272,11 @@ fn confirm_modal(session: &mut GameSession, ui: &mut UiState, modal: ModalKind) 
     ui.modal = None;
     match modal {
         ModalKind::Resign => submit_command(session, ui, SessionCommand::Resign),
-        ModalKind::Restart => submit_command(session, ui, SessionCommand::Restart),
-        ModalKind::Rules => {}
+        ModalKind::Restart => {
+            ui.result_modal_seen = false;
+            submit_command(session, ui, SessionCommand::Restart);
+        }
+        ModalKind::Rules | ModalKind::Result => {}
     }
 }
 
@@ -397,5 +419,65 @@ mod tests {
         assert_eq!(ui.modal, None);
         assert!(ui.feedback_is_error);
         assert_eq!(ui.feedback, error_message(SessionError::GameOver));
+    }
+
+    #[test]
+    fn main_menu_button_triggers_state_transition() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::Local)));
+        app.init_resource::<UiState>();
+
+        // Set state to InGame first
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::InGame);
+        app.update();
+
+        app.add_systems(Update, handle_buttons);
+        app.world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::MainMenu));
+        app.update();
+
+        let next_state = app.world().resource::<NextState<AppState>>();
+        assert!(matches!(next_state, NextState::Pending(AppState::MainMenu)));
+    }
+
+    #[test]
+    fn result_modal_buttons_handle_close_and_restart() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        let mut session = GameSession::compact(GameMode::Local);
+        session.submit(SessionCommand::Pass).unwrap();
+        session.submit(SessionCommand::Pass).unwrap();
+        app.insert_resource(SessionResource(session));
+        app.init_resource::<UiState>();
+        app.world_mut().resource_mut::<UiState>().modal = Some(ModalKind::Result);
+        app.world_mut().resource_mut::<UiState>().result_modal_seen = true;
+
+        app.add_systems(Update, handle_buttons);
+
+        // Test CloseResult
+        let close_btn = app
+            .world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::CloseResult))
+            .id();
+        app.update();
+        assert_eq!(app.world().resource::<UiState>().modal, None);
+
+        // Test RestartDirect
+        app.world_mut().resource_mut::<UiState>().modal = Some(ModalKind::Result);
+        app.world_mut().entity_mut(close_btn).despawn();
+        app.world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::RestartDirect));
+        app.update();
+
+        let ui = app.world().resource::<UiState>();
+        assert_eq!(ui.modal, None);
+        assert!(!ui.result_modal_seen);
+        let session = app.world().resource::<SessionResource>();
+        assert_eq!(session.0.status(), GameStatus::Playing);
     }
 }
