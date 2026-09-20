@@ -240,7 +240,7 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Simple),
-                        "简单 (50)",
+                        AiDifficulty::Simple.label(),
                         false,
                         font,
                         None,
@@ -249,7 +249,7 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Normal),
-                        "普通 (200)",
+                        AiDifficulty::Normal.label(),
                         true,
                         font,
                         None,
@@ -258,7 +258,7 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Hard),
-                        "困难 (1000)",
+                        AiDifficulty::Hard.label(),
                         false,
                         font,
                         None,

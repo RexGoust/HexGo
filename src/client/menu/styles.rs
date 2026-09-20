@@ -1,8 +1,4 @@
-#![allow(dead_code)]
-
 use bevy::prelude::*;
-
-use super::types::MenuAction;
 
 pub const MENU_BG: Color = Color::srgb(0.12, 0.09, 0.06);
 pub const CARD_BG: Color = Color::srgb(0.17, 0.13, 0.09);
@@ -28,22 +24,6 @@ pub fn menu_text_bundle(text: &str, font: &Handle<Font>, size: f32, color: Color
         },
         TextLayout::new(Justify::Center, LineBreak::NoWrap),
         TextColor(color),
-    )
-}
-
-pub fn menu_button_bundle(action: MenuAction) -> impl Bundle {
-    (
-        Button,
-        action,
-        Node {
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            border: UiRect::all(px(2)),
-            border_radius: BorderRadius::all(px(8)),
-            ..default()
-        },
-        BorderColor::all(Color::NONE),
-        BackgroundColor(BUTTON_BG),
     )
 }
 

@@ -1,7 +1,6 @@
-#![allow(dead_code)]
-
 use bevy::prelude::*;
 
+pub mod interaction;
 pub mod styles;
 pub mod types;
 pub mod view;
@@ -18,6 +17,16 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MenuSetupConfig>()
             .add_systems(OnEnter(AppState::MainMenu), view::spawn_main_menu)
-            .add_systems(OnExit(AppState::MainMenu), view::cleanup_menu);
+            .add_systems(OnExit(AppState::MainMenu), view::cleanup_menu)
+            .add_systems(
+                Update,
+                (
+                    interaction::handle_menu_actions,
+                    interaction::sync_menu_screen_visibility,
+                    interaction::sync_menu_selection_styles,
+                    interaction::style_menu_buttons,
+                )
+                    .run_if(in_state(AppState::MainMenu)),
+            );
     }
 }
