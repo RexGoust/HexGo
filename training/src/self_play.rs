@@ -124,6 +124,8 @@ where
     S: Search,
     F: Fn() -> S + Sync,
 {
+    println!("generate samples local");
+    println!("total games: {games}");
     (0..games)
         .into_par_iter()
         .flat_map(|_| {
@@ -147,6 +149,9 @@ where
     B: Backend,
 {
     if total_games < GPU_MIN_BATCH || batch_size < GPU_MIN_BATCH {
+        println!(
+            "total games {total_games} or infer batch size {batch_size} is too small,\n less than {GPU_MIN_BATCH} fallback to cpu"
+        );
         let cpu_dev = cpu_device();
         let cpu_model = switch_model_backend::<B, CpuBackend>(model, &cpu_dev);
         return generate_samples_local(model_type, total_games, iterations, || {
@@ -162,6 +167,11 @@ where
     let initial_games = batch_size.min(total_games);
     let count_0 = initial_games.div_ceil(2);
     let count_1 = initial_games - count_0;
+
+    println!("generate samples batched");
+    println!(
+        "infer batch size: {batch_size}, total_games: {total_games},slot0 games: {count_0}, slot1 games: {count_1}"
+    );
 
     let mut slots = [GameSlot::new(count_0), GameSlot::new(count_1)];
     let mut started = slots[0].games.len() + slots[1].games.len();

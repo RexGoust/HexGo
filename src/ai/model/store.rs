@@ -5,12 +5,23 @@ use burn::tensor::Device;
 use burn::{module::Module, record::CompactRecorder};
 use burn_store::{BurnpackStore, ModuleSnapshot};
 use clap::ValueEnum;
+use std::fmt;
 use std::{fs, path::Path};
 #[derive(Debug, Clone, ValueEnum, Copy, PartialEq, Eq)]
 #[value(rename_all = "lower")]
 pub enum StoreType {
     BPK,
     MPK,
+}
+
+impl fmt::Display for StoreType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            StoreType::BPK => "BPK",
+            StoreType::MPK => "MPK",
+        };
+        f.write_str(s)
+    }
 }
 
 pub fn get_store_type(path: &str) -> Option<StoreType> {

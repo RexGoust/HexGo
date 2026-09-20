@@ -288,6 +288,8 @@ where
     FC: Fn() -> S + Sync,
     FB: Fn() -> S + Sync,
 {
+    println!("evaluate model cpu");
+    println!("total games {games}");
     let results: Vec<(usize, GameResult)> = (0..games)
         .into_par_iter()
         .map(|index| {
@@ -386,6 +388,9 @@ fn evaluate_model_cuda<B: Backend>(
     iterations: usize,
 ) -> EvaluationResult {
     if total_games < GPU_MIN_BATCH || batch_size < GPU_MIN_BATCH {
+        println!(
+            "total games {total_games} or infer batch size {batch_size} is too small,\n less than {GPU_MIN_BATCH} fallback to cpu"
+        );
         let cpu_dev = cpu_device();
         let cand_cpu = switch_model_backend::<B, CpuBackend>(candidate, &cpu_dev);
         let base_cpu = switch_model_backend::<B, CpuBackend>(baseline, &cpu_dev);
@@ -406,7 +411,8 @@ fn evaluate_model_cuda<B: Backend>(
             iterations,
         );
     }
-
+    println!("evaluate model cuda");
+    println!("infer batch size: {batch_size}, total games: {total_games}");
     let cand_type = get_model_type(&candidate);
     let base_type = get_model_type(&baseline);
 
