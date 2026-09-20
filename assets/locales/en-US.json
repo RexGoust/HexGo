@@ -39,8 +39,8 @@
   "game.passes": "Consecutive Passes: {count} / 2",
   "game.over": "Game Over",
 
-  "feedback.select_point": "Select an intersection to place a stone",
-  "feedback.your_turn": "Your turn. Select an intersection to place a stone",
+  "feedback.select_point": "Select an intersection to play",
+  "feedback.your_turn": "Your turn to play",
   "feedback.ai_thinking": "AI is thinking...",
   "feedback.waiting_opponent": "Waiting for opponent...",
   "feedback.ai_playing": "AI is self-playing...",

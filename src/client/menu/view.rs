@@ -53,8 +53,8 @@ pub fn spawn_main_menu(
             root.spawn((
                 Node {
                     width: percent(90),
-                    max_width: px(440),
-                    padding: UiRect::all(px(32)),
+                    max_width: px(520),
+                    padding: UiRect::axes(px(26), px(30)),
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     row_gap: px(24),
@@ -359,6 +359,7 @@ fn spawn_option_button(
         Node {
             flex_grow: 1.0,
             height: px(46),
+            padding: UiRect::axes(px(10), px(6)),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
             border: UiRect::all(px(2)),

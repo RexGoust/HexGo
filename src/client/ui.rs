@@ -198,8 +198,18 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>, store: &I18nStore
             panel.spawn((
                 FeedbackText,
                 AdaptiveContent::Feedback,
-                text_bundle("", font, 16.0, MUTED_TEXT),
+                (
+                    Text::new(""),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(16.0),
+                        ..default()
+                    },
+                    TextLayout::new(Justify::Left, LineBreak::WordBoundary),
+                    TextColor(MUTED_TEXT),
+                ),
                 Node {
+                    width: percent(100),
                     min_height: px(52),
                     margin: UiRect::vertical(px(8)),
                     ..default()

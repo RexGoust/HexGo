@@ -182,6 +182,7 @@ pub fn layout_mobile_content(
                 node.align_self = AlignSelf::Center;
                 if let Some(ref mut layout) = text_layout {
                     layout.justify = Justify::Center;
+                    layout.linebreak = LineBreak::WordBoundary;
                 }
             }
             (AdaptiveContent::Feedback, false) => {
@@ -192,6 +193,7 @@ pub fn layout_mobile_content(
                 node.align_self = AlignSelf::Auto;
                 if let Some(ref mut layout) = text_layout {
                     layout.justify = Justify::Left;
+                    layout.linebreak = LineBreak::WordBoundary;
                 }
             }
             (AdaptiveContent::Result, true) => {
@@ -400,6 +402,7 @@ mod tests {
         assert_eq!(node.width, Val::Auto);
         assert_eq!(node.align_self, AlignSelf::Center);
         assert_eq!(layout.justify, Justify::Center);
+        assert_eq!(layout.linebreak, LineBreak::WordBoundary);
 
         // Desktop
         app.world_mut()
@@ -413,5 +416,6 @@ mod tests {
         assert_eq!(node.width, percent(100));
         assert_eq!(node.align_self, AlignSelf::Auto);
         assert_eq!(layout.justify, Justify::Left);
+        assert_eq!(layout.linebreak, LineBreak::WordBoundary);
     }
 }

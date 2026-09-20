@@ -769,7 +769,7 @@ mod tests {
         );
         assert_eq!(
             default_feedback_for_mode(&local, &store, Language::EnUs),
-            "Select an intersection to place a stone"
+            store.t(Language::EnUs, "feedback.select_point")
         );
 
         let ai_black = GameSession::compact(GameMode::AI(Player::Black));
@@ -779,7 +779,7 @@ mod tests {
         );
         assert_eq!(
             default_feedback_for_mode(&ai_black, &store, Language::EnUs),
-            "Your turn. Select an intersection to place a stone"
+            store.t(Language::EnUs, "feedback.your_turn")
         );
 
         let ai_white = GameSession::compact(GameMode::AI(Player::White));
@@ -789,7 +789,7 @@ mod tests {
         );
         assert_eq!(
             default_feedback_for_mode(&ai_white, &store, Language::EnUs),
-            "AI is thinking..."
+            store.t(Language::EnUs, "feedback.ai_thinking")
         );
 
         let self_play = GameSession::compact(GameMode::SelfPlay);
@@ -807,7 +807,7 @@ mod tests {
         );
         assert_eq!(
             default_feedback_for_mode(&finished, &store, Language::EnUs),
-            "Game Over"
+            store.t(Language::EnUs, "game.over")
         );
     }
 
