@@ -21,6 +21,7 @@ impl Plugin for MenuPlugin {
             .add_systems(
                 Update,
                 (
+                    view::layout_menu,
                     interaction::handle_menu_actions,
                     interaction::sync_menu_screen_visibility,
                     interaction::sync_menu_selection_styles,
