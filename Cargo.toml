@@ -1,6 +1,6 @@
 [package]
 name = "HexGo"
-version = "0.2.0-alpha.2"
+version = "0.2.0-beta.1"
 edition = "2024"
 
 [lib]
@@ -56,7 +56,7 @@ cpu = []
 cuda = ["burn/cuda","burn/fusion"]
 
 [package.metadata.android]
-version-code = 4
+version-code = 5
 
 [profile.release]
 opt-level = "s"
