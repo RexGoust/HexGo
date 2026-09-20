@@ -818,7 +818,7 @@ mod tests {
             Player::Black,
         ))))
         .init_resource::<I18nStore>()
-        .init_resource::<CurrentLanguage>()
+        .insert_resource(CurrentLanguage(Language::ZhCn))
         .add_systems(Update, sync_current_player);
 
         app.world_mut().spawn((CurrentPlayerText, Text::new("")));
@@ -840,13 +840,41 @@ mod tests {
     }
 
     #[test]
+    fn sync_current_player_shows_correct_role_indicator_in_english() {
+        let mut app = App::new();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
+            Player::Black,
+        ))))
+        .init_resource::<I18nStore>()
+        .insert_resource(CurrentLanguage(Language::EnUs))
+        .add_systems(Update, sync_current_player);
+
+        app.world_mut().spawn((CurrentPlayerText, Text::new("")));
+        app.update();
+
+        let store = I18nStore::default();
+        let expected = store.format(
+            Language::EnUs,
+            "game.turn",
+            &[
+                ("player", store.t(Language::EnUs, "player.black")),
+                ("role", store.t(Language::EnUs, "role.you")),
+            ],
+        );
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<&Text, With<CurrentPlayerText>>();
+        let text = query.single(world).unwrap();
+        assert_eq!(text.0, expected);
+    }
+
+    #[test]
     fn sync_game_mode_updates_mode_text() {
         let mut app = App::new();
         app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
             Player::Black,
         ))))
         .init_resource::<I18nStore>()
-        .init_resource::<CurrentLanguage>()
+        .insert_resource(CurrentLanguage(Language::ZhCn))
         .add_systems(Update, sync_game_mode);
 
         app.world_mut().spawn((GameModeText, Text::new("")));
@@ -854,6 +882,27 @@ mod tests {
 
         let store = I18nStore::default();
         let expected = store.t(Language::ZhCn, "game.mode_ai_black");
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<&Text, With<GameModeText>>();
+        let text = query.single(world).unwrap();
+        assert_eq!(text.0, expected);
+    }
+
+    #[test]
+    fn sync_game_mode_updates_mode_text_in_english() {
+        let mut app = App::new();
+        app.insert_resource(SessionResource(GameSession::compact(GameMode::AI(
+            Player::Black,
+        ))))
+        .init_resource::<I18nStore>()
+        .insert_resource(CurrentLanguage(Language::EnUs))
+        .add_systems(Update, sync_game_mode);
+
+        app.world_mut().spawn((GameModeText, Text::new("")));
+        app.update();
+
+        let store = I18nStore::default();
+        let expected = store.t(Language::EnUs, "game.mode_ai_black");
         let world = app.world_mut();
         let mut query = world.query_filtered::<&Text, With<GameModeText>>();
         let text = query.single(world).unwrap();
@@ -880,7 +929,7 @@ mod tests {
         app.insert_resource(SessionResource(session))
             .init_resource::<UiState>()
             .init_resource::<I18nStore>()
-            .init_resource::<CurrentLanguage>()
+            .insert_resource(CurrentLanguage(Language::ZhCn))
             .add_systems(Update, sync_result_modal);
 
         app.world_mut().spawn((
@@ -923,7 +972,7 @@ mod tests {
         app.insert_resource(SessionResource(session))
             .init_resource::<UiState>()
             .init_resource::<I18nStore>()
-            .init_resource::<CurrentLanguage>()
+            .insert_resource(CurrentLanguage(Language::ZhCn))
             .add_systems(Update, sync_result_modal);
 
         app.world_mut().spawn((
