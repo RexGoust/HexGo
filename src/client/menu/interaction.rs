@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     ai::AiConfig,
-    client::{SessionResource, state::AppState},
+    client::{SessionResource, i18n::CurrentLanguage, state::AppState},
     session::{GameMode, GameSession},
 };
 
@@ -18,6 +18,7 @@ pub fn handle_menu_actions(
     mut next_state: ResMut<NextState<AppState>>,
     mut session: ResMut<SessionResource>,
     mut ai_config: ResMut<AiConfig>,
+    mut current_lang: ResMut<CurrentLanguage>,
 ) {
     for (interaction, action) in &interactions {
         if *interaction != Interaction::Pressed {
@@ -45,6 +46,9 @@ pub fn handle_menu_actions(
                 ai_config.iterations = config.difficulty.iterations();
                 session.0 = GameSession::compact(GameMode::AI(config.player_color));
                 next_state.set(AppState::InGame);
+            }
+            MenuAction::ToggleLanguage => {
+                current_lang.0 = current_lang.0.toggle();
             }
         }
     }
@@ -133,7 +137,10 @@ pub fn style_menu_buttons(config: Res<MenuSetupConfig>, mut buttons: Query<MenuB
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{client::menu::types::AiDifficulty, game::player::Player};
+    use crate::{
+        client::{i18n::Language, menu::types::AiDifficulty},
+        game::player::Player,
+    };
 
     fn setup_test_app() -> App {
         let mut app = App::new();
@@ -141,8 +148,23 @@ mod tests {
         app.init_state::<AppState>();
         app.init_resource::<MenuSetupConfig>();
         app.init_resource::<AiConfig>();
+        app.init_resource::<CurrentLanguage>();
         app.insert_resource(SessionResource(GameSession::compact(GameMode::Local)));
         app
+    }
+
+    #[test]
+    fn toggle_language_action_toggles_current_language() {
+        let mut app = setup_test_app();
+        app.add_systems(Update, handle_menu_actions);
+
+        assert_eq!(app.world().resource::<CurrentLanguage>().0, Language::ZhCn);
+
+        app.world_mut()
+            .spawn((Interaction::Pressed, MenuAction::ToggleLanguage));
+        app.update();
+
+        assert_eq!(app.world().resource::<CurrentLanguage>().0, Language::EnUs);
     }
 
     #[test]
@@ -215,6 +237,7 @@ mod tests {
         app.insert_resource(SessionResource(GameSession::compact(GameMode::Local)));
         app.init_resource::<AiConfig>();
         app.init_resource::<MenuSetupConfig>();
+        app.init_resource::<CurrentLanguage>();
         app.add_systems(
             Update,
             (

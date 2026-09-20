@@ -6,7 +6,10 @@ use super::{
     },
     types::{AiDifficulty, MenuAction, MenuEntity},
 };
-use crate::game::player::Player;
+use crate::{
+    client::i18n::{CurrentLanguage, I18nKey, I18nStore, Language},
+    game::player::Player,
+};
 
 /// Marker component for the primary main screen button container.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +28,12 @@ pub struct SideButton(pub Player);
 pub struct DifficultyButton(pub AiDifficulty);
 
 /// Spawns the entire Main Menu UI tree.
-pub fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn spawn_main_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
+) {
     let font = styles::load_menu_font(&asset_server);
 
     commands
@@ -58,9 +66,9 @@ pub fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                 BackgroundColor(CARD_BG),
             ))
             .with_children(|card| {
-                spawn_title_header(card, &font);
-                spawn_main_screen(card, &font);
-                spawn_ai_setup_screen(card, &font);
+                spawn_title_header(card, &font, &store, lang.0);
+                spawn_main_screen(card, &font, &store, lang.0);
+                spawn_ai_setup_screen(card, &font, &store, lang.0);
             });
         });
 }
@@ -72,7 +80,12 @@ pub fn cleanup_menu(mut commands: Commands, query: Query<Entity, With<MenuEntity
     }
 }
 
-fn spawn_title_header(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+fn spawn_title_header(
+    card: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     card.spawn((Node {
         flex_direction: FlexDirection::Column,
         align_items: AlignItems::Center,
@@ -82,16 +95,51 @@ fn spawn_title_header(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
     },))
         .with_children(|header| {
             header.spawn(styles::menu_text_bundle("HEXGO", font, 38.0, TEXT_PRIMARY));
-            header.spawn(styles::menu_text_bundle(
-                "六角围棋 · 策略对战",
-                font,
-                15.0,
-                TEXT_MUTED,
+            header.spawn((
+                I18nKey("menu.subtitle"),
+                styles::menu_text_bundle(store.t(lang, "menu.subtitle"), font, 15.0, TEXT_MUTED),
+            ));
+            spawn_language_button(header, font, store, lang);
+        });
+}
+
+fn spawn_language_button(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
+    parent
+        .spawn((
+            Button,
+            MenuAction::ToggleLanguage,
+            Node {
+                height: px(32),
+                padding: UiRect::axes(px(14), px(4)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                border: UiRect::all(px(1)),
+                border_radius: BorderRadius::all(px(16)),
+                margin: UiRect::top(px(4)),
+                ..default()
+            },
+            BorderColor::all(BUTTON_BG),
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.2)),
+        ))
+        .with_children(|btn| {
+            btn.spawn((
+                I18nKey("menu.lang_switch"),
+                styles::menu_text_bundle(store.t(lang, "menu.lang_switch"), font, 13.0, TEXT_MUTED),
             ));
         });
 }
 
-fn spawn_main_screen(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+fn spawn_main_screen(
+    card: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     card.spawn((
         MainScreenRoot,
         Node {
@@ -105,16 +153,20 @@ fn spawn_main_screen(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
         spawn_primary_button(
             screen,
             MenuAction::OpenAiSetup,
-            "与 AI 对战",
-            "挑战神经网络与 MCTS 对手",
+            "menu.vs_ai",
+            "menu.vs_ai_desc",
             font,
+            store,
+            lang,
         );
         spawn_primary_button(
             screen,
             MenuAction::PlayLocal,
-            "本地对战",
-            "双人同屏轮流落子",
+            "menu.local",
+            "menu.local_desc",
             font,
+            store,
+            lang,
         );
     });
 }
@@ -122,9 +174,11 @@ fn spawn_main_screen(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
 fn spawn_primary_button(
     parent: &mut ChildSpawnerCommands,
     action: MenuAction,
-    title: &str,
-    subtitle: &str,
+    title_key: &'static str,
+    subtitle_key: &'static str,
     font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
 ) {
     parent
         .spawn((
@@ -146,12 +200,23 @@ fn spawn_primary_button(
             BackgroundColor(BUTTON_BG),
         ))
         .with_children(|btn| {
-            btn.spawn(styles::menu_text_bundle(title, font, 20.0, TEXT_PRIMARY));
-            btn.spawn(styles::menu_text_bundle(subtitle, font, 13.0, TEXT_MUTED));
+            btn.spawn((
+                I18nKey(title_key),
+                styles::menu_text_bundle(store.t(lang, title_key), font, 20.0, TEXT_PRIMARY),
+            ));
+            btn.spawn((
+                I18nKey(subtitle_key),
+                styles::menu_text_bundle(store.t(lang, subtitle_key), font, 13.0, TEXT_MUTED),
+            ));
         });
 }
 
-fn spawn_ai_setup_screen(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+fn spawn_ai_setup_screen(
+    card: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     card.spawn((
         AiSetupScreenRoot,
         Node {
@@ -163,13 +228,23 @@ fn spawn_ai_setup_screen(card: &mut ChildSpawnerCommands, font: &Handle<Font>) {
         },
     ))
     .with_children(|screen| {
-        spawn_side_selector(screen, font);
-        spawn_difficulty_selector(screen, font);
-        spawn_ai_screen_actions(screen, font);
+        spawn_side_selector(screen, font, store, lang);
+        spawn_difficulty_selector(screen, font, store, lang);
+        spawn_ai_screen_actions(screen, font, store, lang);
     });
 }
 
-fn spawn_side_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+enum OptionMarker {
+    Side(Player),
+    Difficulty(AiDifficulty),
+}
+
+fn spawn_side_selector(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     parent
         .spawn((Node {
             width: percent(100),
@@ -178,11 +253,9 @@ fn spawn_side_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
             ..default()
         },))
         .with_children(|section| {
-            section.spawn(styles::menu_text_bundle(
-                "选择己方执子",
-                font,
-                14.0,
-                TEXT_MUTED,
+            section.spawn((
+                I18nKey("menu.choose_side"),
+                styles::menu_text_bundle(store.t(lang, "menu.choose_side"), font, 14.0, TEXT_MUTED),
             ));
             section
                 .spawn((Node {
@@ -195,26 +268,31 @@ fn spawn_side_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
                     spawn_option_button(
                         row,
                         MenuAction::SelectSide(Player::Black),
-                        "执黑 (先手)",
+                        "menu.side_black",
+                        store.t(lang, "menu.side_black"),
                         true,
                         font,
-                        Some(SideButton(Player::Black)),
-                        None,
+                        OptionMarker::Side(Player::Black),
                     );
                     spawn_option_button(
                         row,
                         MenuAction::SelectSide(Player::White),
-                        "执白 (后手)",
+                        "menu.side_white",
+                        store.t(lang, "menu.side_white"),
                         false,
                         font,
-                        Some(SideButton(Player::White)),
-                        None,
+                        OptionMarker::Side(Player::White),
                     );
                 });
         });
 }
 
-fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+fn spawn_difficulty_selector(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     parent
         .spawn((Node {
             width: percent(100),
@@ -223,11 +301,9 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
             ..default()
         },))
         .with_children(|section| {
-            section.spawn(styles::menu_text_bundle(
-                "AI 思考深度 (MCTS 迭代次数)",
-                font,
-                14.0,
-                TEXT_MUTED,
+            section.spawn((
+                I18nKey("menu.mcts_depth"),
+                styles::menu_text_bundle(store.t(lang, "menu.mcts_depth"), font, 14.0, TEXT_MUTED),
             ));
             section
                 .spawn((Node {
@@ -240,29 +316,29 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Simple),
-                        AiDifficulty::Simple.label(),
+                        AiDifficulty::Simple.key(),
+                        store.t(lang, AiDifficulty::Simple.key()),
                         false,
                         font,
-                        None,
-                        Some(DifficultyButton(AiDifficulty::Simple)),
+                        OptionMarker::Difficulty(AiDifficulty::Simple),
                     );
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Normal),
-                        AiDifficulty::Normal.label(),
+                        AiDifficulty::Normal.key(),
+                        store.t(lang, AiDifficulty::Normal.key()),
                         true,
                         font,
-                        None,
-                        Some(DifficultyButton(AiDifficulty::Normal)),
+                        OptionMarker::Difficulty(AiDifficulty::Normal),
                     );
                     spawn_option_button(
                         row,
                         MenuAction::SelectDifficulty(AiDifficulty::Hard),
-                        AiDifficulty::Hard.label(),
+                        AiDifficulty::Hard.key(),
+                        store.t(lang, AiDifficulty::Hard.key()),
                         false,
                         font,
-                        None,
-                        Some(DifficultyButton(AiDifficulty::Hard)),
+                        OptionMarker::Difficulty(AiDifficulty::Hard),
                     );
                 });
         });
@@ -271,11 +347,11 @@ fn spawn_difficulty_selector(parent: &mut ChildSpawnerCommands, font: &Handle<Fo
 fn spawn_option_button(
     parent: &mut ChildSpawnerCommands,
     action: MenuAction,
+    key: &'static str,
     label: &str,
     is_selected: bool,
     font: &Handle<Font>,
-    side_marker: Option<SideButton>,
-    diff_marker: Option<DifficultyButton>,
+    marker: OptionMarker,
 ) {
     let mut entity = parent.spawn((
         Button,
@@ -297,19 +373,29 @@ fn spawn_option_button(
         }),
     ));
 
-    if let Some(side) = side_marker {
-        entity.insert(side);
-    }
-    if let Some(diff) = diff_marker {
-        entity.insert(diff);
+    match marker {
+        OptionMarker::Side(side) => {
+            entity.insert(SideButton(side));
+        }
+        OptionMarker::Difficulty(diff) => {
+            entity.insert(DifficultyButton(diff));
+        }
     }
 
     entity.with_children(|btn| {
-        btn.spawn(styles::menu_text_bundle(label, font, 15.0, TEXT_PRIMARY));
+        btn.spawn((
+            I18nKey(key),
+            styles::menu_text_bundle(label, font, 15.0, TEXT_PRIMARY),
+        ));
     });
 }
 
-fn spawn_ai_screen_actions(parent: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+fn spawn_ai_screen_actions(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     parent
         .spawn((Node {
             width: percent(100),
@@ -336,7 +422,15 @@ fn spawn_ai_screen_actions(parent: &mut ChildSpawnerCommands, font: &Handle<Font
                     BackgroundColor(BUTTON_SELECTED),
                 ))
                 .with_children(|btn| {
-                    btn.spawn(styles::menu_text_bundle("开始对战", font, 18.0, ACCENT));
+                    btn.spawn((
+                        I18nKey("menu.start_match"),
+                        styles::menu_text_bundle(
+                            store.t(lang, "menu.start_match"),
+                            font,
+                            18.0,
+                            ACCENT,
+                        ),
+                    ));
                 });
 
             actions
@@ -356,7 +450,15 @@ fn spawn_ai_screen_actions(parent: &mut ChildSpawnerCommands, font: &Handle<Font
                     BackgroundColor(BUTTON_BG),
                 ))
                 .with_children(|btn| {
-                    btn.spawn(styles::menu_text_bundle("返回", font, 16.0, TEXT_MUTED));
+                    btn.spawn((
+                        I18nKey("menu.back"),
+                        styles::menu_text_bundle(
+                            store.t(lang, "menu.back"),
+                            font,
+                            16.0,
+                            TEXT_MUTED,
+                        ),
+                    ));
                 });
         });
 }

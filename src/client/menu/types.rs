@@ -24,7 +24,17 @@ impl AiDifficulty {
         }
     }
 
+    /// Returns the localization key for this difficulty.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Simple => "menu.diff_simple",
+            Self::Normal => "menu.diff_normal",
+            Self::Hard => "menu.diff_hard",
+        }
+    }
+
     /// User-facing label in Chinese.
+    #[allow(dead_code)]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Simple => "简单 (50步)",
@@ -77,6 +87,8 @@ pub enum MenuAction {
     SelectDifficulty(AiDifficulty),
     /// Start AI match with currently selected configuration.
     StartAiGame,
+    /// Toggles interface language.
+    ToggleLanguage,
 }
 
 /// Marker component attached to root main menu entities for teardown on state exit.

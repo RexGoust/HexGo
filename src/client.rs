@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod board;
+pub mod i18n;
 mod input;
 mod layout;
 mod materials;
@@ -47,7 +48,10 @@ impl Plugin for ClientPlugin {
             })
             .init_resource::<AiConfig>()
             .init_resource::<AiState>()
-            .init_resource::<UiState>();
+            .init_resource::<UiState>()
+            .init_resource::<i18n::CurrentLanguage>()
+            .init_resource::<i18n::I18nStore>()
+            .add_systems(Update, i18n::sync_i18n_static_texts);
 
         setup(app);
 
@@ -198,6 +202,7 @@ pub(crate) struct UiState {
     focus: FocusTarget,
     modal: Option<ModalKind>,
     feedback: String,
+    pub(crate) feedback_key: Option<&'static str>,
     feedback_is_error: bool,
     result_modal_seen: bool,
 }
@@ -224,6 +229,25 @@ pub(crate) fn can_do_game_action(session: &GameSession, ui: &UiState) -> bool {
     }
 }
 
+pub(crate) fn command_feedback_key(command: SessionCommand) -> &'static str {
+    match command {
+        SessionCommand::Place(_) => "feedback.placed",
+        SessionCommand::Pass => "feedback.passed",
+        SessionCommand::Resign => "feedback.resigned",
+        SessionCommand::Restart => "feedback.restarted",
+    }
+}
+
+pub(crate) fn error_key(error: SessionError) -> &'static str {
+    match error {
+        SessionError::InvalidVertex => "error.invalid_vertex",
+        SessionError::Occupied => "error.occupied",
+        SessionError::Suicide => "error.suicide",
+        SessionError::Superko => "error.superko",
+        SessionError::GameOver => "error.game_over",
+    }
+}
+
 fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionCommand) {
     if ui.modal.is_some() {
         return;
@@ -240,15 +264,20 @@ fn submit_command(session: &mut GameSession, ui: &mut UiState, command: SessionC
     match session.submit(command) {
         Ok(()) => {
             ui.feedback_is_error = false;
-            ui.feedback = match command {
-                SessionCommand::Place(_) => "落子成功".into(),
-                SessionCommand::Pass => "已停着".into(),
-                SessionCommand::Resign => "对局因认输结束".into(),
-                SessionCommand::Restart => "已开始新对局".into(),
+            let key = command_feedback_key(command);
+            ui.feedback_key = Some(key);
+            ui.feedback = match key {
+                "feedback.placed" => "落子成功".into(),
+                "feedback.passed" => "已停着".into(),
+                "feedback.resigned" => "对局因认输结束".into(),
+                "feedback.restarted" => "已开始新对局".into(),
+                _ => String::new(),
             };
         }
         Err(error) => {
             ui.feedback_is_error = true;
+            let key = error_key(error);
+            ui.feedback_key = Some(key);
             ui.feedback = error_message(error).into();
         }
     }

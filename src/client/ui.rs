@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::client::i18n::{CurrentLanguage, I18nKey, I18nStore, Language};
 use crate::client::input::ButtonAction;
 use crate::client::state::InGameEntity;
 
@@ -86,7 +87,13 @@ fn text_bundle(text: &str, font: &Handle<Font>, size: f32, color: Color) -> impl
     )
 }
 
-fn action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl Bundle {
+fn action_button(
+    action: ButtonAction,
+    key: &'static str,
+    store: &I18nStore,
+    lang: Language,
+    font: &Handle<Font>,
+) -> impl Bundle {
     (
         Button,
         action,
@@ -103,11 +110,14 @@ fn action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(BUTTON_BACKGROUND),
-        children![text_bundle(label, font, 18.0, TEXT_COLOR)],
+        children![(
+            I18nKey(key),
+            text_bundle(store.t(lang, key), font, 18.0, TEXT_COLOR),
+        )],
     )
 }
 
-fn rules_close_button(font: &Handle<Font>) -> impl Bundle {
+fn rules_close_button(store: &I18nStore, lang: Language, font: &Handle<Font>) -> impl Bundle {
     (
         Button,
         ButtonAction::CloseRules,
@@ -124,7 +134,10 @@ fn rules_close_button(font: &Handle<Font>) -> impl Bundle {
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(Color::srgb(0.35, 0.25, 0.16)),
-        children![text_bundle("关闭", font, 17.0, TEXT_COLOR)],
+        children![(
+            I18nKey("modal.close"),
+            text_bundle(store.t(lang, "modal.close"), font, 17.0, TEXT_COLOR),
+        )],
     )
 }
 
@@ -136,7 +149,7 @@ fn rules_text_node() -> Node {
     }
 }
 
-fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
+fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>, store: &I18nStore, lang: Language) {
     commands
         .spawn((
             InGameEntity,
@@ -162,7 +175,7 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
             panel.spawn((
                 GameModeText,
                 ResponsiveElement::DesktopOnly,
-                text_bundle("本地双人对局", font, 16.0, MUTED_TEXT),
+                text_bundle(store.t(lang, "game.mode_local"), font, 16.0, MUTED_TEXT),
             ));
             panel.spawn((
                 ResponsiveElement::DesktopOnly,
@@ -181,19 +194,13 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                     },
                 ))
                 .with_children(|status| {
-                    status.spawn((
-                        CurrentPlayerText,
-                        text_bundle("当前执子：黑方", font, 22.0, TEXT_COLOR),
-                    ));
-                    status.spawn((
-                        PassCountText,
-                        text_bundle("连续停着：0 / 2", font, 16.0, MUTED_TEXT),
-                    ));
+                    status.spawn((CurrentPlayerText, text_bundle("", font, 22.0, TEXT_COLOR)));
+                    status.spawn((PassCountText, text_bundle("", font, 16.0, MUTED_TEXT)));
                 });
             panel.spawn((
                 FeedbackText,
                 AdaptiveContent::Feedback,
-                text_bundle("请选择一个交点落子", font, 16.0, MUTED_TEXT),
+                text_bundle("", font, 16.0, MUTED_TEXT),
                 Node {
                     min_height: px(52),
                     margin: UiRect::vertical(px(8)),
@@ -213,23 +220,29 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
                 .with_children(|actions| {
                     actions.spawn((
                         ResponsiveElement::ActionButton,
-                        action_button(ButtonAction::Pass, "停着", font),
+                        action_button(ButtonAction::Pass, "action.pass", store, lang, font),
                     ));
                     actions.spawn((
                         ResponsiveElement::ActionButton,
-                        action_button(ButtonAction::Resign, "认输", font),
+                        action_button(ButtonAction::Resign, "action.resign", store, lang, font),
                     ));
                     actions.spawn((
                         ResponsiveElement::ActionButton,
-                        action_button(ButtonAction::Restart, "重新开始", font),
+                        action_button(ButtonAction::Restart, "action.restart", store, lang, font),
                     ));
                     actions.spawn((
                         ResponsiveElement::ActionButton,
-                        action_button(ButtonAction::Rules, "游戏规则", font),
+                        action_button(ButtonAction::Rules, "action.rules", store, lang, font),
                     ));
                     actions.spawn((
                         ResponsiveElement::ActionButton,
-                        action_button(ButtonAction::MainMenu, "返回主菜单", font),
+                        action_button(
+                            ButtonAction::MainMenu,
+                            "action.main_menu",
+                            store,
+                            lang,
+                            font,
+                        ),
                     ));
                 });
             panel
@@ -268,17 +281,13 @@ fn spawn_sidebar(commands: &mut Commands, font: &Handle<Font>) {
             ));
             panel.spawn((
                 ResponsiveElement::DesktopOnly,
-                text_bundle(
-                    "Tab 切换区域 · 方向键选择 · Enter 确认",
-                    font,
-                    13.0,
-                    MUTED_TEXT,
-                ),
+                I18nKey("hud.controls_help"),
+                text_bundle(store.t(lang, "hud.controls_help"), font, 13.0, MUTED_TEXT),
             ));
         });
 }
 
-fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
+fn spawn_modal(commands: &mut Commands, font: &Handle<Font>, store: &I18nStore, lang: Language) {
     commands
         .spawn((
             InGameEntity,
@@ -321,14 +330,31 @@ fn spawn_modal(commands: &mut Commands, font: &Handle<Font>) {
                             ..default()
                         },))
                         .with_children(|buttons| {
-                            buttons.spawn(action_button(ButtonAction::Confirm, "确认", font));
-                            buttons.spawn(action_button(ButtonAction::Cancel, "取消", font));
+                            buttons.spawn(action_button(
+                                ButtonAction::Confirm,
+                                "modal.confirm",
+                                store,
+                                lang,
+                                font,
+                            ));
+                            buttons.spawn(action_button(
+                                ButtonAction::Cancel,
+                                "modal.cancel",
+                                store,
+                                lang,
+                                font,
+                            ));
                         });
                 });
         });
 }
 
-fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
+fn spawn_rules_modal(
+    commands: &mut Commands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     commands
         .spawn((
             InGameEntity,
@@ -365,7 +391,10 @@ fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
                     BackgroundColor(PANEL_BACKGROUND),
                 ))
                 .with_children(|dialog| {
-                    dialog.spawn(text_bundle("游戏规则", font, 27.0, TEXT_COLOR));
+                    dialog.spawn((
+                        I18nKey("modal.rules_title"),
+                        text_bundle(store.t(lang, "modal.rules_title"), font, 27.0, TEXT_COLOR),
+                    ));
                     let mut scroll = dialog.spawn((
                         RulesScroll,
                         ScrollPosition::default(),
@@ -385,17 +414,25 @@ fn spawn_rules_modal(commands: &mut Commands, font: &Handle<Font>) {
                     ));
                     scroll.with_children(|content| {
                         content
-                            .spawn(text_bundle(rules_summary::SUMMARY, font, 16.0, TEXT_COLOR))
+                            .spawn((
+                                I18nKey("rules.summary"),
+                                text_bundle(store.t(lang, "rules.summary"), font, 16.0, TEXT_COLOR),
+                            ))
                             .insert(TextLayout::new(Justify::Left, LineBreak::AnyCharacter))
                             .insert(Pickable::IGNORE)
                             .insert(rules_text_node());
                     });
-                    dialog.spawn(rules_close_button(font));
+                    dialog.spawn(rules_close_button(store, lang, font));
                 });
         });
 }
 
-fn spawn_result_modal(commands: &mut Commands, font: &Handle<Font>) {
+fn spawn_result_modal(
+    commands: &mut Commands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
     commands
         .spawn((
             InGameEntity,
@@ -433,7 +470,10 @@ fn spawn_result_modal(commands: &mut Commands, font: &Handle<Font>) {
                     BackgroundColor(PANEL_BACKGROUND),
                 ))
                 .with_children(|dialog| {
-                    dialog.spawn(text_bundle("对局结束", font, 24.0, TEXT_COLOR));
+                    dialog.spawn((
+                        I18nKey("modal.result_title"),
+                        text_bundle(store.t(lang, "modal.result_title"), font, 24.0, TEXT_COLOR),
+                    ));
                     dialog.spawn((ResultModalTitle, text_bundle("", font, 19.0, ACCENT)));
                     dialog.spawn((ResultModalDetails, text_bundle("", font, 15.0, MUTED_TEXT)));
                     dialog
@@ -447,17 +487,23 @@ fn spawn_result_modal(commands: &mut Commands, font: &Handle<Font>) {
                         .with_children(|buttons| {
                             buttons.spawn(modal_action_button(
                                 ButtonAction::RestartDirect,
-                                "再来一局",
+                                "modal.play_again",
+                                store,
+                                lang,
                                 font,
                             ));
                             buttons.spawn(modal_action_button(
                                 ButtonAction::MainMenu,
-                                "返回主菜单",
+                                "modal.main_menu",
+                                store,
+                                lang,
                                 font,
                             ));
                             buttons.spawn(modal_action_button(
                                 ButtonAction::CloseResult,
-                                "查看棋盘",
+                                "modal.view_board",
+                                store,
+                                lang,
                                 font,
                             ));
                         });
@@ -465,7 +511,13 @@ fn spawn_result_modal(commands: &mut Commands, font: &Handle<Font>) {
         });
 }
 
-fn modal_action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -> impl Bundle {
+fn modal_action_button(
+    action: ButtonAction,
+    key: &'static str,
+    store: &I18nStore,
+    lang: Language,
+    font: &Handle<Font>,
+) -> impl Bundle {
     (
         Button,
         action,
@@ -482,17 +534,25 @@ fn modal_action_button(action: ButtonAction, label: &str, font: &Handle<Font>) -
         },
         BorderColor::all(Color::NONE),
         BackgroundColor(BUTTON_BACKGROUND),
-        children![text_bundle(label, font, 16.0, TEXT_COLOR)],
+        children![(
+            I18nKey(key),
+            text_bundle(store.t(lang, key), font, 16.0, TEXT_COLOR),
+        )],
     )
 }
 
-pub fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn setup_ui(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    store: Res<I18nStore>,
+    lang: Res<CurrentLanguage>,
+) {
     let font = load_cjk_font(&asset_server);
 
-    spawn_sidebar(&mut commands, &font);
-    spawn_modal(&mut commands, &font);
-    spawn_rules_modal(&mut commands, &font);
-    spawn_result_modal(&mut commands, &font);
+    spawn_sidebar(&mut commands, &font, &store, lang.0);
+    spawn_modal(&mut commands, &font, &store, lang.0);
+    spawn_rules_modal(&mut commands, &font, &store, lang.0);
+    spawn_result_modal(&mut commands, &font, &store, lang.0);
 }
 
 #[cfg(test)]
