@@ -43,5 +43,8 @@ mod tests {
         assert!(page.contains("id=\"hexgo-canvas\""));
         assert!(page.contains("id=\"loading-screen\""));
         assert!(page.contains("data-initializer=\"web/loader.mjs\""));
+        assert!(page.contains("<base data-trunk-public-url />"));
+        let trunk_config = include_str!("../Trunk.toml");
+        assert!(trunk_config.contains("public_url = \"./\""));
     }
 }
