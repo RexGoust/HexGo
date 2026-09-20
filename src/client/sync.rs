@@ -1,4 +1,7 @@
-use super::ui::{CurrentPlayerText, GameModeText, PassCountText, ResultPanel, ResultText};
+use super::ui::{
+    CurrentPlayerText, GameModeText, PassCountText, ResultModalDetails, ResultModalOverlay,
+    ResultModalTitle, ResultPanel, ResultText,
+};
 use crate::{
     client::{
         FocusTarget, ModalKind, SessionResource, UiState,
@@ -188,52 +191,18 @@ pub(super) fn sync_result(
     mut result_text: Single<&mut Text, With<ResultText>>,
 ) {
     if let Some(result) = session.0.result() {
-        result_panel.display = Display::Flex;
         let is_mobile = layout::is_mobile_layout(Vec2::new(window.width(), window.height()));
-        let value = if is_mobile {
-            compact_result_summary(&session.0, result)
+        if is_mobile {
+            result_panel.display = Display::None;
         } else {
-            result_summary(&session.0, result)
-        };
-        if result_text.0 != value {
-            result_text.0 = value;
+            result_panel.display = Display::Flex;
+            let value = result_summary(&session.0, result);
+            if result_text.0 != value {
+                result_text.0 = value;
+            }
         }
     } else {
         result_panel.display = Display::None;
-    }
-}
-
-fn compact_result_summary(session: &GameSession, result: GameResult) -> String {
-    let mode = session.mode();
-    match result {
-        GameResult::WinByResignation { winner } => {
-            let role = player_role_tag(winner, mode);
-            format!("对局结果：{}{}因对方认输获胜", player_name(winner), role)
-        }
-        GameResult::WinByScore { winner, margin } => {
-            let score = session.score_breakdown();
-            let winner_role = player_role_tag(winner, mode);
-            format!(
-                "对局结果：{}{}胜 {:.1} 目\n黑方 {:.1}（棋 {} / 地 {}）\n白方 {:.1}（棋 {} / 地 {} / 贴 {:.1}）",
-                player_name(winner),
-                winner_role,
-                margin,
-                score.black_total,
-                score.black_stones,
-                score.black_territory,
-                score.white_total,
-                score.white_stones,
-                score.white_territory,
-                score.komi,
-            )
-        }
-        GameResult::Draw => {
-            let score = session.score_breakdown();
-            format!(
-                "对局结果：和棋\n黑方总分：{:.1} · 白方总分：{:.1}",
-                score.black_total, score.white_total
-            )
-        }
     }
 }
 
@@ -356,7 +325,7 @@ pub(super) fn sync_modal(
                 text.0 = value.into();
             }
         }
-        Some(ModalKind::Rules) => overlay.display = Display::None,
+        Some(ModalKind::Rules) | Some(ModalKind::Result) => overlay.display = Display::None,
         None => overlay.display = Display::None,
     }
 }
@@ -375,6 +344,83 @@ pub(super) fn sync_rules_modal(
     };
     if is_open && !was_open {
         scroll.0 = Vec2::ZERO;
+    }
+}
+
+pub(super) fn sync_result_modal(
+    session: Res<SessionResource>,
+    mut ui: ResMut<UiState>,
+    mut overlay: Single<&mut Node, With<ResultModalOverlay>>,
+    mut title: Single<&mut Text, (With<ResultModalTitle>, Without<ResultModalDetails>)>,
+    mut details: Single<&mut Text, (With<ResultModalDetails>, Without<ResultModalTitle>)>,
+) {
+    if session.0.result().is_some() && !ui.result_modal_seen && ui.modal.is_none() {
+        ui.modal = Some(ModalKind::Result);
+        ui.result_modal_seen = true;
+    }
+
+    let is_open = ui.modal == Some(ModalKind::Result);
+    overlay.display = if is_open {
+        Display::Flex
+    } else {
+        Display::None
+    };
+
+    if is_open && let Some(result) = session.0.result() {
+        let mode = session.0.mode();
+        let (title_text, details_text) = format_modal_result(&session.0, result, mode);
+        if title.0 != title_text {
+            title.0 = title_text;
+        }
+        if details.0 != details_text {
+            details.0 = details_text;
+        }
+    }
+}
+
+fn format_modal_result(
+    session: &GameSession,
+    result: GameResult,
+    mode: GameMode,
+) -> (String, String) {
+    match result {
+        GameResult::WinByResignation { winner } => {
+            let role = player_role_tag(winner, mode);
+            (
+                format!("{}{}获胜", player_name(winner), role),
+                "因对方认输，本局对战结束。".into(),
+            )
+        }
+        GameResult::WinByScore { winner, margin } => {
+            let score = session.score_breakdown();
+            let winner_role = player_role_tag(winner, mode);
+            let black_role = player_role_tag(Player::Black, mode);
+            let white_role = player_role_tag(Player::White, mode);
+            let title = format!("{}{}胜 {:.1} 目", player_name(winner), winner_role, margin);
+            let details = format!(
+                "黑方{}\n棋子：{}\n领地：{}\n总分：{:.1}\n\n白方{}\n棋子：{}\n领地：{}\n贴目：{:.1}\n总分：{:.1}",
+                black_role,
+                score.black_stones,
+                score.black_territory,
+                score.black_total,
+                white_role,
+                score.white_stones,
+                score.white_territory,
+                score.komi,
+                score.white_total,
+            );
+            (title, details)
+        }
+        GameResult::Draw => {
+            let score = session.score_breakdown();
+            (
+                "双方和棋".into(),
+                format!(
+                    "黑方总分：{:.1}\n白方总分：{:.1}",
+                    score.black_total, score.white_total
+                ),
+            )
+        }
     }
 }
 
@@ -440,12 +486,10 @@ mod tests {
                 summary
             );
 
-            let compact_summary = compact_result_summary(&session, session.result().unwrap());
-            assert!(
-                compact_summary.lines().count() <= 3,
-                "Compact summary exceeded 3 lines for mode {:?}",
-                mode
-            );
+            let (modal_title, modal_details) =
+                format_modal_result(&session, session.result().unwrap(), mode);
+            assert!(!modal_title.is_empty());
+            assert!(!modal_details.is_empty());
 
             let mut resign_session = GameSession::compact(mode);
             resign_session.submit(SessionCommand::Resign).unwrap();
@@ -458,9 +502,10 @@ mod tests {
                 mode,
                 resign_summary
             );
-            let compact_resign =
-                compact_result_summary(&resign_session, resign_session.result().unwrap());
-            assert!(compact_resign.lines().count() <= 3);
+            let (resign_title, resign_details) =
+                format_modal_result(&resign_session, resign_session.result().unwrap(), mode);
+            assert!(!resign_title.is_empty());
+            assert!(!resign_details.is_empty());
         }
     }
 
@@ -572,5 +617,83 @@ mod tests {
         let mut query = world.query_filtered::<&Text, With<GameModeText>>();
         let text = query.single(world).unwrap();
         assert_eq!(text.0, "人机对战（己方执黑）");
+    }
+
+    #[test]
+    fn result_triggers_result_modal_and_updates_content() {
+        let mut app = App::new();
+        let mut session = GameSession::compact(GameMode::Local);
+        session.submit(SessionCommand::Pass).unwrap();
+        session.submit(SessionCommand::Pass).unwrap();
+        assert!(session.result().is_some());
+
+        app.insert_resource(SessionResource(session))
+            .init_resource::<UiState>()
+            .add_systems(Update, sync_result_modal);
+
+        app.world_mut().spawn((
+            ResultModalOverlay,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((ResultModalTitle, Text::new("")));
+        app.world_mut().spawn((ResultModalDetails, Text::new("")));
+
+        app.update();
+
+        let ui = app.world().resource::<UiState>();
+        assert_eq!(ui.modal, Some(ModalKind::Result));
+        assert!(ui.result_modal_seen);
+
+        let world = app.world_mut();
+        let mut overlay_q = world.query_filtered::<&Node, With<ResultModalOverlay>>();
+        let overlay = overlay_q.single(world).unwrap();
+        assert_eq!(overlay.display, Display::Flex);
+
+        let mut title_q = world.query_filtered::<&Text, With<ResultModalTitle>>();
+        let title = title_q.single(world).unwrap();
+        assert!(title.0.contains("胜") || title.0.contains("和棋"));
+    }
+
+    #[test]
+    fn closing_result_modal_does_not_retrigger_next_frame() {
+        let mut app = App::new();
+        let mut session = GameSession::compact(GameMode::Local);
+        session.submit(SessionCommand::Pass).unwrap();
+        session.submit(SessionCommand::Pass).unwrap();
+
+        app.insert_resource(SessionResource(session))
+            .init_resource::<UiState>()
+            .add_systems(Update, sync_result_modal);
+
+        app.world_mut().spawn((
+            ResultModalOverlay,
+            Node {
+                display: Display::None,
+                ..default()
+            },
+        ));
+        app.world_mut().spawn((ResultModalTitle, Text::new("")));
+        app.world_mut().spawn((ResultModalDetails, Text::new("")));
+
+        // First update triggers modal
+        app.update();
+        assert_eq!(
+            app.world().resource::<UiState>().modal,
+            Some(ModalKind::Result)
+        );
+
+        // User closes the modal to inspect board
+        app.world_mut().resource_mut::<UiState>().modal = None;
+        app.update();
+
+        // Modal should remain closed and not re-trigger
+        assert_eq!(app.world().resource::<UiState>().modal, None);
+        let world = app.world_mut();
+        let mut overlay_q = world.query_filtered::<&Node, With<ResultModalOverlay>>();
+        let overlay = overlay_q.single(world).unwrap();
+        assert_eq!(overlay.display, Display::None);
     }
 }

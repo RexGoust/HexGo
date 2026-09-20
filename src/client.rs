@@ -140,6 +140,7 @@ fn add_sync_system(app: &mut App) {
             sync::sync_feedback,
             sync::sync_modal,
             sync::sync_rules_modal,
+            sync::sync_result_modal,
         )
             .in_set(GameSystemSet::Sync),
     );
@@ -187,6 +188,7 @@ enum ModalKind {
     Resign,
     Restart,
     Rules,
+    Result,
 }
 
 #[derive(Resource, Default)]
@@ -197,6 +199,7 @@ pub(crate) struct UiState {
     modal: Option<ModalKind>,
     feedback: String,
     feedback_is_error: bool,
+    result_modal_seen: bool,
 }
 
 pub fn setup_camera(mut commands: Commands) {

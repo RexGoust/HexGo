@@ -1,8 +1,9 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{prelude::*, ui::GridPlacement, window::PrimaryWindow};
 
 use crate::client::{
     SessionResource,
     board::*,
+    input::ButtonAction,
     ui::{AdaptiveContent, ResponsiveElement, SIDEBAR_WIDTH},
 };
 
@@ -49,10 +50,10 @@ fn responsive_layout(window_size: Vec2) -> ResponsiveLayout {
 
 pub fn layout_control_panel(
     window: Single<&Window, With<PrimaryWindow>>,
-    mut elements: Query<(&ResponsiveElement, &mut Node)>,
+    mut elements: Query<(&ResponsiveElement, &mut Node, Option<&ButtonAction>)>,
 ) {
     let layout = responsive_layout(Vec2::new(window.width(), window.height()));
-    for (element, mut node) in &mut elements {
+    for (element, mut node, action) in &mut elements {
         match (element, layout.panel_on_bottom) {
             (ResponsiveElement::ControlPanel, true) => {
                 node.left = px(0);
@@ -97,9 +98,9 @@ pub fn layout_control_panel(
             }
             (ResponsiveElement::ActionGroup, true) => {
                 node.display = Display::Grid;
-                node.height = px(148);
-                node.grid_template_columns = RepeatedGridTrack::flex(2, 1.0);
-                node.grid_template_rows = RepeatedGridTrack::px(3, 44.0);
+                node.height = px(88);
+                node.grid_template_columns = RepeatedGridTrack::flex(6, 1.0);
+                node.grid_template_rows = RepeatedGridTrack::px(2, 40.0);
                 node.column_gap = px(8);
                 node.row_gap = px(8);
             }
@@ -113,26 +114,34 @@ pub fn layout_control_panel(
                 node.row_gap = px(16);
             }
             (ResponsiveElement::ActionButton, true) => {
-                layout_action_button(&mut node, true);
+                layout_action_button(&mut node, action, true);
             }
             (ResponsiveElement::ActionButton, false) => {
-                layout_action_button(&mut node, false);
+                layout_action_button(&mut node, action, false);
             }
         }
     }
 }
 
-pub fn layout_action_button(node: &mut Node, is_mobile: bool) {
+pub fn layout_action_button(node: &mut Node, action: Option<&ButtonAction>, is_mobile: bool) {
     if is_mobile {
         node.width = percent(100);
         node.min_width = px(0);
         node.flex_basis = Val::Auto;
         node.flex_grow = 0.0;
+        node.grid_column = match action {
+            Some(ButtonAction::Pass | ButtonAction::Resign | ButtonAction::Rules) => {
+                GridPlacement::span(2)
+            }
+            Some(ButtonAction::Restart | ButtonAction::MainMenu) => GridPlacement::span(3),
+            _ => GridPlacement::default(),
+        };
     } else {
         node.width = percent(100);
         node.min_width = Val::Auto;
         node.flex_basis = Val::Auto;
         node.flex_grow = 0.0;
+        node.grid_column = GridPlacement::default();
     }
 }
 
@@ -288,11 +297,15 @@ mod tests {
     fn mobile_action_buttons_share_the_available_row_width() {
         let mut node = Node::default();
 
-        layout_action_button(&mut node, true);
+        layout_action_button(&mut node, Some(&ButtonAction::Pass), true);
 
         assert_eq!(node.width, percent(100));
         assert_eq!(node.min_width, px(0));
         assert_eq!(node.flex_basis, Val::Auto);
         assert_eq!(node.flex_grow, 0.0);
+        assert_eq!(node.grid_column, GridPlacement::span(2));
+
+        layout_action_button(&mut node, Some(&ButtonAction::MainMenu), true);
+        assert_eq!(node.grid_column, GridPlacement::span(3));
     }
 }

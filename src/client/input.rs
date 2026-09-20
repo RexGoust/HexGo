@@ -26,6 +26,8 @@ pub enum ButtonAction {
     Cancel,
     CloseRules,
     MainMenu,
+    CloseResult,
+    RestartDirect,
 }
 
 pub fn vertex_at_screen_position(
@@ -230,9 +232,16 @@ pub(super) fn handle_buttons(
                 ui.focus = FocusTarget::Rules;
                 open_rules(&mut ui);
             }
-            ButtonAction::MainMenu if ui.modal.is_none() => {
+            ButtonAction::MainMenu if ui.modal.is_none() || ui.modal == Some(ModalKind::Result) => {
                 ui.focus = FocusTarget::MainMenu;
+                ui.modal = None;
                 next_state.set(AppState::MainMenu);
+            }
+            ButtonAction::CloseResult => ui.modal = None,
+            ButtonAction::RestartDirect => {
+                ui.result_modal_seen = false;
+                ui.modal = None;
+                submit_command(&mut session.0, &mut ui, SessionCommand::Restart);
             }
             ButtonAction::Confirm => {
                 if let Some(modal) = ui.modal {
@@ -263,8 +272,11 @@ fn confirm_modal(session: &mut GameSession, ui: &mut UiState, modal: ModalKind) 
     ui.modal = None;
     match modal {
         ModalKind::Resign => submit_command(session, ui, SessionCommand::Resign),
-        ModalKind::Restart => submit_command(session, ui, SessionCommand::Restart),
-        ModalKind::Rules => {}
+        ModalKind::Restart => {
+            ui.result_modal_seen = false;
+            submit_command(session, ui, SessionCommand::Restart);
+        }
+        ModalKind::Rules | ModalKind::Result => {}
     }
 }
 
@@ -430,5 +442,42 @@ mod tests {
 
         let next_state = app.world().resource::<NextState<AppState>>();
         assert!(matches!(next_state, NextState::Pending(AppState::MainMenu)));
+    }
+
+    #[test]
+    fn result_modal_buttons_handle_close_and_restart() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        let mut session = GameSession::compact(GameMode::Local);
+        session.submit(SessionCommand::Pass).unwrap();
+        session.submit(SessionCommand::Pass).unwrap();
+        app.insert_resource(SessionResource(session));
+        app.init_resource::<UiState>();
+        app.world_mut().resource_mut::<UiState>().modal = Some(ModalKind::Result);
+        app.world_mut().resource_mut::<UiState>().result_modal_seen = true;
+
+        app.add_systems(Update, handle_buttons);
+
+        // Test CloseResult
+        let close_btn = app
+            .world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::CloseResult))
+            .id();
+        app.update();
+        assert_eq!(app.world().resource::<UiState>().modal, None);
+
+        // Test RestartDirect
+        app.world_mut().resource_mut::<UiState>().modal = Some(ModalKind::Result);
+        app.world_mut().entity_mut(close_btn).despawn();
+        app.world_mut()
+            .spawn((Interaction::Pressed, ButtonAction::RestartDirect));
+        app.update();
+
+        let ui = app.world().resource::<UiState>();
+        assert_eq!(ui.modal, None);
+        assert!(!ui.result_modal_seen);
+        let session = app.world().resource::<SessionResource>();
+        assert_eq!(session.0.status(), GameStatus::Playing);
     }
 }
