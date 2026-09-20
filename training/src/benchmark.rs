@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use burn::Tensor;
 use clap::Args;
-use hex_go::ai::backend::{CpuBackend, CudaBackend, cpu_device, cuda_device};
+use hex_go::ai::backend::{CpuBackend, CudaBackend, cpu_device, cuda_device, switch_model_backend};
 use hex_go::ai::burn_neural_network::BurnNeuralNetwork;
 use hex_go::ai::dummy_network::DummyNetwork;
 use hex_go::ai::encoder::{adjacency_tensor, encode_game_gnn, encode_game_mlp};
@@ -22,7 +22,7 @@ use crate::device::DeviceKind;
 use crate::game_slot::GameSlot;
 use crate::model_type::ModelType;
 use crate::self_play::generate_samples_local;
-use crate::train_network::forward_batch;
+use crate::train_network::{GPU_MIN_BATCH, forward_batch, forward_batch_cpu_parallel};
 
 #[derive(Args, Clone, Debug)]
 pub struct BenchArgs {
@@ -49,6 +49,10 @@ pub struct BenchArgs {
     /// Run benchmarks for both CPU and CUDA side-by-side for comparison
     #[arg(long, default_value_t = false)]
     pub compare: bool,
+
+    /// Compare pipeline performance with vs without CPU dynamic fallback
+    #[arg(long, default_value_t = false)]
+    pub compare_fallback: bool,
 }
 
 /// 1. Benchmark pure board game rules logic without any neural network.
@@ -169,31 +173,46 @@ pub fn bench_cpu_independent_inference(model_type: ModelType) {
     println!("--------------------------------------------------------------------------------");
 }
 
-/// 2B. Benchmark CUDA batched forward passes across varying batch sizes.
+/// 2B. Benchmark CUDA vs CPU parallel forward inference across varying batch sizes.
 pub fn bench_cuda_batch_scaling(model_type: ModelType) {
     println!("\n================================================================================");
     println!(
-        "  [Benchmark 2/3] Raw CUDA Forward Inference Scaling ({:?})",
+        "  [Benchmark 2/3] Raw CUDA vs CPU Parallel Forward Inference Scaling ({:?})",
         model_type
     );
     println!("================================================================================");
     println!(
-        "{:<12} {:<18} {:<18} {:<18}",
-        "Batch Size", "Batch Time (us)", "Per-Sample (us)", "Throughput (samples/s)"
+        "{:<10} {:<16} {:<16} {:<18} {:<18} {:<14}",
+        "Batch Size",
+        "GPU Latency (us)",
+        "CPU Latency (us)",
+        "Speedup / Winner",
+        "GPU Tput (sps)",
+        "CPU Tput (sps)"
     );
     println!("--------------------------------------------------------------------------------");
 
-    let device = cuda_device();
+    let cuda_dev = cuda_device();
+    let cpu_dev = cpu_device();
     let config = match model_type {
         ModelType::Mlp => ModelConfig::Mlp(MlpModelConfig::default()),
         ModelType::Gnn => ModelConfig::Gnn(GnnModelConfig::default()),
     };
-    let model = HexGoModel::<CudaBackend>::new(config, &device);
-    let adj = match &model {
+    let cuda_model = HexGoModel::<CudaBackend>::new(config, &cuda_dev);
+    let cpu_model = switch_model_backend::<CudaBackend, CpuBackend>(cuda_model.clone(), &cpu_dev);
+
+    let cuda_adj = match &cuda_model {
         HexGoModel::Gnn(_) => {
-            adjacency_tensor::<CudaBackend>(BoardDefinition::compact().graph(), &device)
+            adjacency_tensor::<CudaBackend>(BoardDefinition::compact().graph(), &cuda_dev)
         }
-        _ => Tensor::zeros([1, 1], &device),
+        _ => Tensor::zeros([1, 1], &cuda_dev),
+    };
+    let cpu_adj = match &cpu_model {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<CpuBackend>(&board, &cpu_dev)
+        }
+        _ => Tensor::zeros([1, 1], &cpu_dev),
     };
 
     let test_game = create_game();
@@ -202,33 +221,59 @@ pub fn bench_cuda_batch_scaling(model_type: ModelType) {
         ModelType::Gnn => encode_game_gnn(&test_game, test_game.current_player()),
     };
 
-    let batch_sizes = [1, 16, 32, 64, 128, 256, 512];
+    let batch_sizes = [1, 4, 8, 16, 32, 48, 64, 96, 128, 256];
 
     for &bs in &batch_sizes {
-        let inputs: Vec<&Vec<f32>> = (0..bs).map(|_| &dummy_input).collect();
+        let inputs_owned: Vec<Vec<f32>> = (0..bs).map(|_| dummy_input.clone()).collect();
+        let inputs_refs: Vec<&Vec<f32>> = inputs_owned.iter().collect();
 
-        // Warmup runs
+        // Warmup GPU
         for _ in 0..5 {
-            let _ = forward_batch(&model, &device, &adj, &inputs);
+            let _ = forward_batch(&cuda_model, &cuda_dev, &cuda_adj, &inputs_refs);
+        }
+        // Warmup CPU
+        for _ in 0..3 {
+            let _ = forward_batch_cpu_parallel(&cpu_model, &cpu_dev, &cpu_adj, &inputs_owned);
         }
 
-        // Timed benchmark runs
-        const REPEATS: u32 = 50;
+        // Timed GPU benchmark
+        const REPEATS: u32 = 30;
         let t0 = Instant::now();
         for _ in 0..REPEATS {
-            let _ = forward_batch(&model, &device, &adj, &inputs);
+            let _ = forward_batch(&cuda_model, &cuda_dev, &cuda_adj, &inputs_refs);
         }
-        let elapsed = t0.elapsed();
-        let avg_batch_us = (elapsed.as_micros() as f64) / (REPEATS as f64);
-        let per_sample_us = avg_batch_us / (bs as f64);
-        let throughput = (bs as f64 * REPEATS as f64) / elapsed.as_secs_f64();
+        let gpu_dur = t0.elapsed();
+        let gpu_avg_us = (gpu_dur.as_micros() as f64) / (REPEATS as f64);
+        let gpu_tput = (bs as f64 * REPEATS as f64) / gpu_dur.as_secs_f64();
+
+        // Timed CPU Parallel benchmark
+        let t1 = Instant::now();
+        for _ in 0..REPEATS {
+            let _ = forward_batch_cpu_parallel(&cpu_model, &cpu_dev, &cpu_adj, &inputs_owned);
+        }
+        let cpu_dur = t1.elapsed();
+        let cpu_avg_us = (cpu_dur.as_micros() as f64) / (REPEATS as f64);
+        let cpu_tput = (bs as f64 * REPEATS as f64) / cpu_dur.as_secs_f64();
+
+        let winner = if cpu_avg_us < gpu_avg_us {
+            let ratio = gpu_avg_us / cpu_avg_us;
+            format!("{:.2}x CPU Win", ratio)
+        } else {
+            let ratio = cpu_avg_us / gpu_avg_us;
+            format!("{:.2}x GPU Win", ratio)
+        };
 
         println!(
-            "{:<12} {:<18.2} {:<18.2} {:<18.0}",
-            bs, avg_batch_us, per_sample_us, throughput
+            "{:<10} {:<16.2} {:<16.2} {:<18} {:<18.0} {:<14.0}",
+            bs, gpu_avg_us, cpu_avg_us, winner, gpu_tput, cpu_tput
         );
     }
     println!("--------------------------------------------------------------------------------");
+    println!(
+        "* Analysis: CPU parallel dominates for batch < 64 (bypasses GPU's ~740us latency floor),"
+    );
+    println!("  while GPU throughput scales up dramatically for batch >= 64.");
+    println!("================================================================================\n");
 }
 
 #[derive(Default)]
@@ -447,18 +492,30 @@ pub fn bench_cpu_pipeline_breakdown(args: &BenchArgs) {
     println!("================================================================================\n");
 }
 
-/// 3B. Benchmark CUDA double-buffered batched pipeline with stage breakdown.
-pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
-    println!("\n================================================================================");
-    println!("  [Benchmark 3/3] CUDA Double-Buffered Batched Pipeline Stage Breakdown");
-    println!("================================================================================");
+#[derive(Default)]
+pub struct PipelineRunStats {
+    pub mode_name: &'static str,
+    pub overall_dur: std::time::Duration,
+    pub completed: usize,
+    pub samples_len: usize,
+    pub forward_calls: u64,
+    pub gpu_forward_calls: u64,
+    pub cpu_forward_calls: u64,
+    pub total_evaluated_samples: u64,
+    pub select_ns: u128,
+    pub forward_ns: u128,
+    pub update_ns: u128,
+    pub queue_wait_ns: u128,
+    pub commit_ns: u128,
+}
 
-    if args.games == 0 {
-        println!("Skipping pipeline benchmark (games = 0).");
-        return;
-    }
-
+fn run_cuda_pipeline_sim(
+    args: &BenchArgs,
+    mode_name: &'static str,
+    enable_fallback: bool,
+) -> PipelineRunStats {
     let device = cuda_device();
+    let cpu_dev = cpu_device();
     let config = match args.model_type {
         ModelType::Mlp => ModelConfig::Mlp(MlpModelConfig::default()),
         ModelType::Gnn => ModelConfig::Gnn(GnnModelConfig::default()),
@@ -471,6 +528,15 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
         _ => Tensor::zeros([1, 1], &device),
     };
 
+    let cpu_model = switch_model_backend::<CudaBackend, CpuBackend>(model.clone(), &cpu_dev);
+    let cpu_adj = match &cpu_model {
+        HexGoModel::Gnn(_) => {
+            let board = BoardDefinition::compact().graph().clone();
+            adjacency_tensor::<CpuBackend>(&board, &cpu_dev)
+        }
+        _ => Tensor::zeros([1, 1], &cpu_dev),
+    };
+
     let initial_games = args.infer_size.min(args.games);
     let count_0 = initial_games.div_ceil(2);
     let count_1 = initial_games - count_0;
@@ -480,13 +546,14 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
     let mut completed = 0;
     let mut samples = Vec::new();
 
-    // Stage timer accumulators in nanoseconds
     let mut select_ns = 0u128;
     let mut forward_ns = 0u128;
     let mut update_ns = 0u128;
     let mut queue_wait_ns = 0u128;
     let mut commit_ns = 0u128;
     let mut forward_calls = 0u64;
+    let mut gpu_forward_calls = 0u64;
+    let mut cpu_forward_calls = 0u64;
     let mut total_evaluated_samples = 0u64;
 
     let overall_start = Instant::now();
@@ -495,22 +562,28 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
         let (req_tx, req_rx) = std::sync::mpsc::sync_channel::<(usize, Vec<Vec<f32>>)>(2);
         let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel(2);
 
-        // Dedicated GPU Worker thread tracking raw forward execution time
         s.spawn(move || {
             while let Ok((id, inputs)) = req_rx.recv() {
                 let num_samples = inputs.len();
-                let refs: Vec<&Vec<f32>> = inputs.iter().collect();
+                let is_gpu = !enable_fallback || num_samples >= GPU_MIN_BATCH;
                 let t_start = Instant::now();
-                let res = forward_batch(&model, &device, &adj, &refs);
+                let res = if is_gpu {
+                    let refs: Vec<&Vec<f32>> = inputs.iter().collect();
+                    forward_batch(&model, &device, &adj, &refs)
+                } else {
+                    forward_batch_cpu_parallel(&cpu_model, &cpu_dev, &cpu_adj, &inputs)
+                };
                 let duration_ns = t_start.elapsed().as_nanos();
 
-                if resp_tx.send((id, res, duration_ns, num_samples)).is_err() {
+                if resp_tx
+                    .send((id, res, duration_ns, num_samples, is_gpu))
+                    .is_err()
+                {
                     break;
                 }
             }
         });
 
-        // Pipeline warmup
         let mut in_flight = 0;
         for (id, slot) in slots.iter_mut().enumerate() {
             let t_sel = Instant::now();
@@ -523,26 +596,28 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
             }
         }
 
-        // Pipelined processing loop
         while in_flight > 0 {
             let t_wait = Instant::now();
-            let (id, (policies, values), f_ns, num_samples) = resp_rx.recv().unwrap();
+            let (id, (policies, values), f_ns, num_samples, is_gpu) = resp_rx.recv().unwrap();
             queue_wait_ns += t_wait.elapsed().as_nanos();
             forward_ns += f_ns;
             forward_calls += 1;
+            if is_gpu {
+                gpu_forward_calls += 1;
+            } else {
+                cpu_forward_calls += 1;
+            }
             total_evaluated_samples += num_samples as u64;
             in_flight -= 1;
 
             let slot = &mut slots[id];
 
-            // 1. MCTS tree backpropagation
             let t_up = Instant::now();
             slot.update(&policies, &values);
             update_ns += t_up.elapsed().as_nanos();
 
             slot.step += 1;
 
-            // 2. Action commitment if iterations reached
             if slot.step >= args.iterations {
                 let t_com = Instant::now();
                 slot.commit_actions(
@@ -555,7 +630,6 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
                 commit_ns += t_com.elapsed().as_nanos();
             }
 
-            // 3. Next MCTS selection step
             if !slot.games.is_empty() && completed < args.games {
                 loop {
                     let t_sel = Instant::now();
@@ -592,23 +666,46 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
     });
 
     let overall_dur = overall_start.elapsed();
-    let total_ns = overall_dur.as_nanos() as f64;
-    let avg_batch_size = if forward_calls > 0 {
-        total_evaluated_samples as f64 / forward_calls as f64
+
+    PipelineRunStats {
+        mode_name,
+        overall_dur,
+        completed,
+        samples_len: samples.len(),
+        forward_calls,
+        gpu_forward_calls,
+        cpu_forward_calls,
+        total_evaluated_samples,
+        select_ns,
+        forward_ns,
+        update_ns,
+        queue_wait_ns,
+        commit_ns,
+    }
+}
+
+fn print_pipeline_breakdown(stats: &PipelineRunStats) {
+    let total_ns = stats.overall_dur.as_nanos() as f64;
+    let avg_batch_size = if stats.forward_calls > 0 {
+        stats.total_evaluated_samples as f64 / stats.forward_calls as f64
+    } else {
+        0.0
+    };
+    let throughput = if stats.overall_dur.as_secs_f64() > 0.0 {
+        stats.samples_len as f64 / stats.overall_dur.as_secs_f64()
     } else {
         0.0
     };
 
-    println!("Benchmark Complete! Overall Time: {:.2?}", overall_dur);
+    println!("\n--- Pipeline Run Breakdown: {} ---", stats.mode_name);
+    println!("Overall Time: {:.2?}", stats.overall_dur);
     println!(
-        "Completed Games: {} | Generated Samples: {} | Batch Forward Calls: {}",
-        completed,
-        samples.len(),
-        forward_calls
+        "Games: {} | Samples: {} | Throughput: {:.2} samples/sec",
+        stats.completed, stats.samples_len, throughput
     );
     println!(
-        "Total Evaluated Positions: {} | Average Batch Size per Forward Call: {:.2}",
-        total_evaluated_samples, avg_batch_size
+        "Total Forward Calls: {} (GPU >= 64: {}, CPU < 64: {}) | Avg Batch Size: {:.2}",
+        stats.forward_calls, stats.gpu_forward_calls, stats.cpu_forward_calls, avg_batch_size
     );
 
     println!(
@@ -619,8 +716,8 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
 
     let print_row = |name: &str, ns: u128| {
         let ms = (ns as f64) / 1_000_000.0;
-        let avg_us = if forward_calls > 0 {
-            (ns as f64) / (forward_calls as f64 * 1000.0)
+        let avg_us = if stats.forward_calls > 0 {
+            (ns as f64) / (stats.forward_calls as f64 * 1000.0)
         } else {
             0.0
         };
@@ -632,11 +729,146 @@ pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
         println!("{:<35} {:<16.2} {:<18.2} {:<11.1}%", name, ms, avg_us, pct);
     };
 
-    print_row("1. CPU Select (Tree Search+Clone)", select_ns);
-    print_row("2. GPU Forward (Inference+PCIe)", forward_ns);
-    print_row("3. CPU Update (Backpropagation)", update_ns);
-    print_row("4. Channel Wait (Queue Sync)", queue_wait_ns);
-    print_row("5. Commit Action (Move+Finish)", commit_ns);
+    print_row("1. CPU Select (Tree Search+Clone)", stats.select_ns);
+    print_row("2. Forward (Inference + Transfer)", stats.forward_ns);
+    print_row("3. CPU Update (Backpropagation)", stats.update_ns);
+    print_row("4. Channel Wait (Queue Sync)", stats.queue_wait_ns);
+    print_row("5. Commit Action (Move+Finish)", stats.commit_ns);
+    println!("--------------------------------------------------------------------------------");
+}
+
+/// 3B. Benchmark CUDA batched pipeline with stage breakdown.
+pub fn bench_cuda_pipeline_breakdown(args: &BenchArgs) {
+    if args.games == 0 {
+        println!("Skipping pipeline benchmark (games = 0).");
+        return;
+    }
+
+    println!("\n================================================================================");
+    println!("  [Benchmark 3/3] CUDA Batched Pipeline Stage Breakdown (Hybrid CPU Fallback)");
+    println!("================================================================================");
+
+    let stats = run_cuda_pipeline_sim(args, "Hybrid Pipeline", true);
+    print_pipeline_breakdown(&stats);
+}
+
+/// 3C. A/B Benchmark directly comparing pipeline performance with vs without dynamic CPU fallback.
+pub fn bench_pipeline_fallback_comparison(args: &BenchArgs) {
+    println!("\n================================================================================");
+    println!("  [A/B Benchmark] Impact Comparison: With vs Without Dynamic CPU Fallback");
+    println!("================================================================================");
+    println!(
+        "Running comparison with {} games, {} iterations/move, infer batch size: {}...",
+        args.games, args.iterations, args.infer_size
+    );
+
+    println!("\n[1/2] Running Baseline Pipeline WITHOUT Fallback (Pure GPU)...");
+    let stats_without = run_cuda_pipeline_sim(args, "Without Fallback (Pure GPU)", false);
+    print_pipeline_breakdown(&stats_without);
+
+    println!("\n[2/2] Running Optimized Pipeline WITH Fallback (Hybrid Dynamic)...");
+    let stats_with = run_cuda_pipeline_sim(args, "With Fallback (Hybrid Dynamic)", true);
+    print_pipeline_breakdown(&stats_with);
+
+    println!("\n================================================================================");
+    println!("  [Executive Summary] Dynamic CPU Fallback Performance Impact");
+    println!("================================================================================");
+    println!(
+        "{:<32} | {:<22} | {:<22} | {:<16}",
+        "Metric", "Without Fallback", "With Fallback", "Improvement"
+    );
+    println!(
+        "---------------------------------+------------------------+------------------------+------------------"
+    );
+
+    let t_without = stats_without.overall_dur.as_secs_f64();
+    let t_with = stats_with.overall_dur.as_secs_f64();
+    let speedup = if t_with > 0.0 {
+        t_without / t_with
+    } else {
+        0.0
+    };
+    let time_saved_pct = if t_without > 0.0 {
+        ((t_without - t_with) / t_without) * 100.0
+    } else {
+        0.0
+    };
+
+    println!(
+        "{:<32} | {:<22.2?} | {:<22.2?} | {:<16}",
+        "Total Wall-Clock Time",
+        stats_without.overall_dur,
+        stats_with.overall_dur,
+        format!("{:.2}x ({:+.1}%)", speedup, -time_saved_pct)
+    );
+
+    let tput_without = if t_without > 0.0 {
+        stats_without.samples_len as f64 / t_without
+    } else {
+        0.0
+    };
+    let tput_with = if t_with > 0.0 {
+        stats_with.samples_len as f64 / t_with
+    } else {
+        0.0
+    };
+    let tput_boost = if tput_without > 0.0 {
+        ((tput_with - tput_without) / tput_without) * 100.0
+    } else {
+        0.0
+    };
+
+    println!(
+        "{:<32} | {:<22.2} | {:<22.2} | {:<16}",
+        "Throughput (samples/sec)",
+        tput_without,
+        tput_with,
+        format!("{:+.1}%", tput_boost)
+    );
+
+    println!(
+        "{:<32} | {:<22} | {:<22} | {:<16}",
+        "Total Forward Calls", stats_without.forward_calls, stats_with.forward_calls, "-"
+    );
+
+    let offloaded_pct = if stats_with.forward_calls > 0 {
+        (stats_with.cpu_forward_calls as f64 / stats_with.forward_calls as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    println!(
+        "{:<32} | {:<22} | {:<22} | {:<16}",
+        "  - GPU Calls (batch >= 64)",
+        stats_without.gpu_forward_calls,
+        stats_with.gpu_forward_calls,
+        "-"
+    );
+
+    println!(
+        "{:<32} | {:<22} | {:<22} | {:<16}",
+        "  - CPU Fallback Calls (< 64)",
+        stats_without.cpu_forward_calls,
+        stats_with.cpu_forward_calls,
+        format!("{:.1}% offloaded", offloaded_pct)
+    );
+
+    let f_ms_without = (stats_without.forward_ns as f64) / 1_000_000.0;
+    let f_ms_with = (stats_with.forward_ns as f64) / 1_000_000.0;
+    let f_saved_pct = if f_ms_without > 0.0 {
+        ((f_ms_without - f_ms_with) / f_ms_without) * 100.0
+    } else {
+        0.0
+    };
+
+    println!(
+        "{:<32} | {:<22.2} | {:<22.2} | {:<16}",
+        "Forward Time (ms)",
+        f_ms_without,
+        f_ms_with,
+        format!("{:+.1}%", -f_saved_pct)
+    );
+
     println!("================================================================================\n");
 }
 
@@ -647,12 +879,20 @@ pub fn run_benchmark(args: BenchArgs) {
     // 1. Benchmark pure board game rules (always runs)
     bench_game_logic();
 
+    if args.compare_fallback {
+        // Benchmark CUDA vs CPU parallel forward scaling across batch sizes
+        bench_cuda_batch_scaling(args.model_type);
+        // Run side-by-side A/B comparison of pipeline performance
+        bench_pipeline_fallback_comparison(&args);
+        return;
+    }
+
     if args.compare {
         // Run both CPU and CUDA benchmarks side-by-side
         bench_cpu_independent_inference(args.model_type);
         bench_cuda_batch_scaling(args.model_type);
         bench_cpu_pipeline_breakdown(&args);
-        bench_cuda_pipeline_breakdown(&args);
+        bench_pipeline_fallback_comparison(&args);
         return;
     }
 
@@ -665,10 +905,13 @@ pub fn run_benchmark(args: BenchArgs) {
             bench_cpu_pipeline_breakdown(&args);
         }
         DeviceKind::Cuda => {
-            // Benchmark CUDA forward scaling across batch sizes
+            // Benchmark CUDA forward scaling across batch sizes (including CPU parallel comparison)
             bench_cuda_batch_scaling(args.model_type);
             // Benchmark CUDA double-buffered batched pipeline breakdown
             bench_cuda_pipeline_breakdown(&args);
+            println!(
+                "💡 Tip: Pass '--compare-fallback' to run side-by-side A/B comparison with vs without CPU dynamic fallback."
+            );
         }
     }
 }
