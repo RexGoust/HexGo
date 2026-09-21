@@ -162,10 +162,16 @@ jobs:
           VERSION="${{ needs.get-version.outputs.version }}"
           ITCH_TARGET="zhenyan121/hexgo"
 
+          cp "artifacts/HexGo-${VERSION}-windows-x86_64.zip" "artifacts/HexGo-windows-x86_64.zip"
+          cp "artifacts/HexGo-${VERSION}-linux-x86_64.zip"   "artifacts/HexGo-linux-x86_64.zip"
+          cp "artifacts/HexGo-${VERSION}-macos-arm64.zip"    "artifacts/HexGo-macos-arm64.zip"
+          cp "artifacts/HexGo-${VERSION}-android-arm64.apk"  "artifacts/HexGo-android-arm64.apk"
+          cp "artifacts/HexGo-${VERSION}-web.zip"            "artifacts/HexGo-web.zip"
+
           echo "Publishing HexGo v${VERSION} to itch.io (${ITCH_TARGET})..."
 
-          butler push "artifacts/HexGo-${VERSION}-windows-x86_64.zip" "${ITCH_TARGET}:windows-x64" --userversion "${VERSION}"
-          butler push "artifacts/HexGo-${VERSION}-linux-x86_64.zip" "${ITCH_TARGET}:linux-x64" --userversion "${VERSION}"
-          butler push "artifacts/HexGo-${VERSION}-macos-arm64.zip" "${ITCH_TARGET}:osx-arm64" --userversion "${VERSION}"
-          butler push "artifacts/HexGo-${VERSION}-android-arm64.apk" "${ITCH_TARGET}:android" --userversion "${VERSION}"
-          butler push "artifacts/HexGo-${VERSION}-web.zip" "${ITCH_TARGET}:html5" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-windows-x86_64.zip" "${ITCH_TARGET}:windows-x64" --userversion "${VERSION}"
+          butler push "artifacts/HexGo-linux-x86_64.zip"   "${ITCH_TARGET}:linux-x64"   --userversion "${VERSION}"
+          butler push "artifacts/HexGo-macos-arm64.zip"    "${ITCH_TARGET}:osx-arm64"   --userversion "${VERSION}"
+          butler push "artifacts/HexGo-android-arm64.apk"  "${ITCH_TARGET}:android"     --userversion "${VERSION}"
+          butler push "artifacts/HexGo-web.zip"            "${ITCH_TARGET}:html5"       --userversion "${VERSION}"
