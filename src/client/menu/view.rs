@@ -79,6 +79,21 @@ pub fn spawn_main_menu(
                 spawn_main_screen(card, &font, &store, lang.0);
                 spawn_ai_setup_screen(card, &font, &store, lang.0);
             });
+            root.spawn((
+                Text::new(env!("CARGO_PKG_VERSION")),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(13.0),
+                    ..default()
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(20.0),
+                    bottom: Val::Px(20.0),
+                    ..default()
+                },
+                TextColor(TEXT_PRIMARY),
+            ));
         });
 }
 
