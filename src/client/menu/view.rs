@@ -19,6 +19,10 @@ pub struct MainScreenRoot;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AiSetupScreenRoot;
 
+/// Marker component for the About screen container.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AboutScreenRoot;
+
 /// Marker component for side selection toggle buttons.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SideButton(pub Player);
@@ -78,6 +82,7 @@ pub fn spawn_main_menu(
                 spawn_title_header(card, &font, &store, lang.0);
                 spawn_main_screen(card, &font, &store, lang.0);
                 spawn_ai_setup_screen(card, &font, &store, lang.0);
+                spawn_about_screen(card, &font, &store, lang.0);
             });
             root.spawn((
                 Text::new(env!("CARGO_PKG_VERSION")),
@@ -188,6 +193,15 @@ fn spawn_main_screen(
             MenuAction::PlayLocal,
             "menu.local",
             "menu.local_desc",
+            font,
+            store,
+            lang,
+        );
+        spawn_primary_button(
+            screen,
+            MenuAction::OpenAbout,
+            "menu.about",
+            "menu.about_desc",
             font,
             store,
             lang,
@@ -488,6 +502,173 @@ fn spawn_ai_screen_actions(
                         ),
                     ));
                 });
+        });
+}
+
+fn spawn_about_screen(
+    card: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+) {
+    card.spawn((
+        AboutScreenRoot,
+        Node {
+            display: Display::None,
+            width: percent(100),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: px(14),
+            ..default()
+        },
+    ))
+    .with_children(|screen| {
+        // Banner with game title and production authorship
+        screen
+            .spawn((
+                Node {
+                    width: percent(100),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: px(4),
+                    padding: UiRect::axes(px(14), px(10)),
+                    border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(8)),
+                    ..default()
+                },
+                BorderColor::all(BUTTON_BG),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.25)),
+            ))
+            .with_children(|banner| {
+                banner.spawn((
+                    I18nKey("about.title"),
+                    styles::menu_text_bundle(
+                        store.t(lang, "about.title"),
+                        font,
+                        20.0,
+                        TEXT_PRIMARY,
+                    ),
+                ));
+                banner.spawn((
+                    I18nKey("about.produced_by"),
+                    styles::menu_text_bundle(
+                        store.t(lang, "about.produced_by"),
+                        font,
+                        14.0,
+                        ACCENT,
+                    ),
+                ));
+            });
+
+        // Credits panel with centered credit sections
+        screen
+            .spawn((
+                Node {
+                    width: percent(100),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: px(12),
+                    padding: UiRect::axes(px(16), px(14)),
+                    border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(8)),
+                    ..default()
+                },
+                BorderColor::all(BUTTON_BG),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.15)),
+            ))
+            .with_children(|credits| {
+                spawn_credit_block(
+                    credits,
+                    font,
+                    store,
+                    lang,
+                    "about.game_design",
+                    "about.game_design_authors",
+                );
+                spawn_credit_block(
+                    credits,
+                    font,
+                    store,
+                    lang,
+                    "about.programming",
+                    "about.programming_authors",
+                );
+                spawn_credit_block(
+                    credits,
+                    font,
+                    store,
+                    lang,
+                    "about.publishing",
+                    "about.publishing_authors",
+                );
+                spawn_credit_block(
+                    credits,
+                    font,
+                    store,
+                    lang,
+                    "about.special_thanks",
+                    "about.special_thanks_list",
+                );
+            });
+
+        // Tech info & License note
+        screen.spawn((
+            I18nKey("about.tech_info"),
+            styles::menu_text_wrap_bundle(store.t(lang, "about.tech_info"), font, 12.0, TEXT_MUTED),
+        ));
+
+        // Back button to return to main menu
+        screen
+            .spawn((
+                Button,
+                MenuAction::BackToMain,
+                Node {
+                    width: percent(100),
+                    height: px(44),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(8)),
+                    margin: UiRect::top(px(4)),
+                    ..default()
+                },
+                BorderColor::all(Color::NONE),
+                BackgroundColor(BUTTON_BG),
+            ))
+            .with_children(|btn| {
+                btn.spawn((
+                    I18nKey("menu.back"),
+                    styles::menu_text_bundle(store.t(lang, "menu.back"), font, 16.0, TEXT_MUTED),
+                ));
+            });
+    });
+}
+
+fn spawn_credit_block(
+    parent: &mut ChildSpawnerCommands,
+    font: &Handle<Font>,
+    store: &I18nStore,
+    lang: Language,
+    role_key: &'static str,
+    names_key: &'static str,
+) {
+    parent
+        .spawn((Node {
+            width: percent(100),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: px(2),
+            ..default()
+        },))
+        .with_children(|block| {
+            block.spawn((
+                I18nKey(role_key),
+                styles::menu_text_bundle(store.t(lang, role_key), font, 12.0, TEXT_MUTED),
+            ));
+            block.spawn((
+                I18nKey(names_key),
+                styles::menu_text_wrap_bundle(store.t(lang, names_key), font, 14.0, TEXT_PRIMARY),
+            ));
         });
 }
 

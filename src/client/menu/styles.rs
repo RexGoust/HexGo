@@ -27,6 +27,24 @@ pub fn menu_text_bundle(text: &str, font: &Handle<Font>, size: f32, color: Color
     )
 }
 
+pub fn menu_text_wrap_bundle(
+    text: &str,
+    font: &Handle<Font>,
+    size: f32,
+    color: Color,
+) -> impl Bundle {
+    (
+        Text::new(text),
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(size),
+            ..default()
+        },
+        TextLayout::new(Justify::Center, LineBreak::WordBoundary),
+        TextColor(color),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

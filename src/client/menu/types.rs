@@ -42,6 +42,8 @@ pub enum MenuScreen {
     Main,
     /// AI setup screen with player side and difficulty options.
     AiSetup,
+    /// About screen with project authorship, credits, and acknowledgments.
+    About,
 }
 
 /// Runtime configuration state maintained while in MainMenu.
@@ -69,6 +71,8 @@ pub enum MenuAction {
     PlayLocal,
     /// Navigate to AI match setup screen.
     OpenAiSetup,
+    /// Navigate to about / credits screen.
+    OpenAbout,
     /// Navigate back to main screen.
     BackToMain,
     /// Select player side (Black or White).
@@ -120,6 +124,38 @@ mod tests {
             assert_ne!(
                 store.t(crate::client::i18n::Language::EnUs, diff.key()),
                 diff.key()
+            );
+        }
+    }
+
+    #[test]
+    fn about_keys_are_defined_in_locales() {
+        let store = crate::client::i18n::I18nStore::default();
+        let keys = [
+            "menu.about",
+            "menu.about_desc",
+            "about.title",
+            "about.produced_by",
+            "about.game_design",
+            "about.game_design_authors",
+            "about.programming",
+            "about.programming_authors",
+            "about.publishing",
+            "about.publishing_authors",
+            "about.special_thanks",
+            "about.special_thanks_list",
+            "about.tech_info",
+        ];
+        for key in keys {
+            assert_ne!(
+                store.t(crate::client::i18n::Language::ZhCn, key),
+                key,
+                "Missing zh translation for {key}"
+            );
+            assert_ne!(
+                store.t(crate::client::i18n::Language::EnUs, key),
+                key,
+                "Missing en translation for {key}"
             );
         }
     }

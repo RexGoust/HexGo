@@ -8,10 +8,13 @@ Run `cargo run`, then complete this checklist before submitting a change that af
 
 ## Launch and Layout
 
-1. Confirm that the compact hexagonal grid appears on the left and the status panel appears on the right.
-2. Confirm that all board edges are visible and connected, without duplicate or missing line segments.
-3. Resize the window to its minimum dimensions and back. The board must remain centered, proportional, and fully visible.
-4. Confirm that Simplified Chinese labels render legibly. The application searches for Source Han Sans, Noto Sans CJK, WenQuanYi Zen Hei, Microsoft YaHei, or PingFang and logs an English warning before falling back to Bevy's default font.
+1. Confirm that the Main Menu displays options for VS AI, Pass & Play, and About, alongside the title header and language switcher.
+2. Click "About" (关于游戏) to open the About screen. Confirm that the title banner 《HexGo》/《六角围棋》, production credit ("Produced by zhenyan121 & TANGERIME" / "zhenyan121 & TANGERIME 制作"), Game Design (zhenyan121, TANGERIME), Programming (zhenyan121), Publishing (zhenyan121), Special Thanks (游云, 桥秋南绪), and engine/license info render clearly.
+3. Toggle the language button and confirm that all text updates immediately between English and Simplified Chinese. Click "Back" (返回) to return to the Main Menu.
+4. Launch a game. Confirm that the compact hexagonal grid appears on the left and the status panel appears on the right.
+5. Confirm that all board edges are visible and connected, without duplicate or missing line segments.
+6. Resize the window to its minimum dimensions and back. The board must remain centered, proportional, and fully visible.
+7. Confirm that Simplified Chinese labels render legibly. The application searches for Source Han Sans, Noto Sans CJK, WenQuanYi Zen Hei, Microsoft YaHei, or PingFang and logs an English warning before falling back to Bevy's default font.
 
 ## Pointer Play
 
