@@ -29,6 +29,7 @@ This file defines repository-wide instructions for AI coding agents working on H
 - Add or update tests for every behavior change and every fixed bug.
 - Do not add dependencies, introduce `unsafe`, or change public behavior without explicit approval.
 - Never edit generated files such as `Cargo.lock` by hand.
+- Preserve workspace dev build settings (`[profile.dev]` with `debug = 1` and optimized dependencies). Heavy Bevy and Burn dependencies cause default `debug = 2` binaries to exceed 1.5GB each and consume massive disk space (>100GB in `target/`). Never revert or bypass these settings.
 
 ## Language and Documentation
 
