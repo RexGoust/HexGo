@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use super::{
     styles::{ACCENT, BUTTON_BG, BUTTON_HOVER, BUTTON_PRESSED, BUTTON_SELECTED},
     types::{MenuAction, MenuScreen, MenuSetupConfig},
-    view::{AiSetupScreenRoot, DifficultyButton, MainScreenRoot, SideButton},
+    view::{AboutScreenRoot, AiSetupScreenRoot, DifficultyButton, MainScreenRoot, SideButton},
 };
 use crate::{
     ai::AiConfig,
@@ -33,6 +33,9 @@ pub fn handle_menu_actions(
             MenuAction::OpenAiSetup => {
                 config.screen = MenuScreen::AiSetup;
             }
+            MenuAction::OpenAbout => {
+                config.screen = MenuScreen::About;
+            }
             MenuAction::BackToMain => {
                 config.screen = MenuScreen::Main;
             }
@@ -54,11 +57,28 @@ pub fn handle_menu_actions(
     }
 }
 
+type MainScreenFilter = (
+    With<MainScreenRoot>,
+    Without<AiSetupScreenRoot>,
+    Without<AboutScreenRoot>,
+);
+type AiScreenFilter = (
+    With<AiSetupScreenRoot>,
+    Without<MainScreenRoot>,
+    Without<AboutScreenRoot>,
+);
+type AboutScreenFilter = (
+    With<AboutScreenRoot>,
+    Without<MainScreenRoot>,
+    Without<AiSetupScreenRoot>,
+);
+
 /// Updates container visibility based on the active MenuScreen.
 pub fn sync_menu_screen_visibility(
     config: Res<MenuSetupConfig>,
-    mut main_screen: Query<&mut Node, (With<MainScreenRoot>, Without<AiSetupScreenRoot>)>,
-    mut ai_screen: Query<&mut Node, (With<AiSetupScreenRoot>, Without<MainScreenRoot>)>,
+    mut main_screen: Query<&mut Node, MainScreenFilter>,
+    mut ai_screen: Query<&mut Node, AiScreenFilter>,
+    mut about_screen: Query<&mut Node, AboutScreenFilter>,
 ) {
     for mut node in &mut main_screen {
         node.display = if config.screen == MenuScreen::Main {
@@ -70,6 +90,14 @@ pub fn sync_menu_screen_visibility(
 
     for mut node in &mut ai_screen {
         node.display = if config.screen == MenuScreen::AiSetup {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+
+    for mut node in &mut about_screen {
+        node.display = if config.screen == MenuScreen::About {
             Display::Flex
         } else {
             Display::None
@@ -234,6 +262,70 @@ mod tests {
         assert_eq!(config.screen, MenuScreen::AiSetup);
         assert_eq!(config.difficulty, AiDifficulty::Simple);
         assert_eq!(config.player_color, Player::White);
+    }
+
+    #[test]
+    fn open_about_action_switches_screen_to_about_and_back() {
+        let mut app = setup_test_app();
+        app.add_systems(Update, handle_menu_actions);
+
+        assert_eq!(
+            app.world().resource::<MenuSetupConfig>().screen,
+            MenuScreen::Main
+        );
+
+        app.world_mut()
+            .spawn((Interaction::Pressed, MenuAction::OpenAbout));
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<MenuSetupConfig>().screen,
+            MenuScreen::About
+        );
+
+        app.world_mut()
+            .spawn((Interaction::Pressed, MenuAction::BackToMain));
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<MenuSetupConfig>().screen,
+            MenuScreen::Main
+        );
+    }
+
+    #[test]
+    fn sync_menu_screen_visibility_shows_only_about_screen() {
+        let mut app = App::new();
+        app.init_resource::<MenuSetupConfig>();
+
+        let main = app
+            .world_mut()
+            .spawn((MainScreenRoot, Node::default()))
+            .id();
+        let ai = app
+            .world_mut()
+            .spawn((AiSetupScreenRoot, Node::default()))
+            .id();
+        let about = app
+            .world_mut()
+            .spawn((AboutScreenRoot, Node::default()))
+            .id();
+
+        app.add_systems(Update, sync_menu_screen_visibility);
+
+        // When in About screen
+        app.world_mut().resource_mut::<MenuSetupConfig>().screen = MenuScreen::About;
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Node>(main).unwrap().display,
+            Display::None
+        );
+        assert_eq!(app.world().get::<Node>(ai).unwrap().display, Display::None);
+        assert_eq!(
+            app.world().get::<Node>(about).unwrap().display,
+            Display::Flex
+        );
     }
 
     #[test]
