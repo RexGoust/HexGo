@@ -1,10 +1,10 @@
 [package]
 name = "HexGo"
-version = "0.2.0-beta.2"
+version = "0.2.0"
 edition = "2024"
 
 [package.metadata.android]
-version-code = 6
+version-code = 7
 
 [lib]
 name = "hex_go"

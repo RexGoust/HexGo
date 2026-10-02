@@ -21,3 +21,11 @@ ricci = "0.10.0"
 default = ["cpu"]
 cpu = []
 cuda = ["burn/cuda", "burn/fusion","HexGo/cuda"]
+
+[profile.dev]
+# Limit debug symbols to line-level info to drastically reduce binary size (cuts ~80% of DWARF bloat from Bevy/Burn)
+debug = 1
+
+# Optimize external dependencies (Bevy, Burn, etc.) in dev builds to prevent binary bloat and boost runtime performance
+[profile.dev.package."*"]
+opt-level = 3
